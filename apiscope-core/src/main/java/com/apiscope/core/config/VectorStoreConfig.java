@@ -13,24 +13,22 @@ import org.springframework.context.annotation.Configuration;
 
 import java.io.File;
 
-// proxyBeanMethods=false prevents CGLIB from subclassing this config class.
-// Without it, Spring tries to proxy the class at startup and fails with
-// NoClassDefFoundError when SimpleVectorStore is not on the classpath.
+/**
+ * NOT picked up by @ComponentScan — registered explicitly via
+ * AgenticDocsAutoConfiguration only when SimpleVectorStore is on the classpath.
+ */
 @Configuration(proxyBeanMethods = false)
 public class VectorStoreConfig {
 
     private static final Logger log = LoggerFactory.getLogger(VectorStoreConfig.class);
 
     private final AgenticDocsProperties properties;
-    // kept as a field so @PreDestroy can save it on shutdown
     private SimpleVectorStore store;
 
     public VectorStoreConfig(AgenticDocsProperties properties) {
         this.properties = properties;
     }
 
-    // Only created when an EmbeddingModel bean exists (i.e. Ollama/OpenAI is configured)
-    // and no other VectorStore has been provided by the host app.
     @Bean
     @ConditionalOnBean(EmbeddingModel.class)
     @ConditionalOnMissingBean(VectorStore.class)
@@ -46,7 +44,6 @@ public class VectorStoreConfig {
         return store;
     }
 
-    // Persists embeddings to disk so the next startup skips re-ingestion.
     @PreDestroy
     public void saveOnShutdown() {
         if (store == null) return;

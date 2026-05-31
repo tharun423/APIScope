@@ -2,15 +2,12 @@ package com.apiscope.core.infrastructure;
 
 import com.apiscope.core.port.LlmPort;
 import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.stereotype.Component;
 import reactor.core.publisher.Flux;
 
-/**
- * Adapts Spring AI's {@link ChatClient} to the {@link LlmPort} interface.
- * To switch LLM providers (Ollama ↔ OpenAI), provide a different {@code ChatClient.Builder} bean
- * or write a new {@code @Primary} {@link LlmPort} implementation.
- */
 @Component
+@ConditionalOnBean(ChatClient.Builder.class)
 public class LlmAdapter implements LlmPort {
 
     private final ChatClient chatClient;

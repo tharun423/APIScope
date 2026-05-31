@@ -75,20 +75,22 @@ public class AgenticDocsChatService implements ChatPort {
             "I could not find a relevant endpoint for that. Please check the API Explorer tab.";
 
     private final ObjectProvider<VectorStorePort> vectorStorePortProvider;
-    private final LlmPort llmPort;
+    private final ObjectProvider<LlmPort> llmPortProvider;
     private final AgenticDocsProperties properties;
 
     public AgenticDocsChatService(ObjectProvider<VectorStorePort> vectorStorePortProvider,
-                                   LlmPort llmPort,
+                                   ObjectProvider<LlmPort> llmPortProvider,
                                    AgenticDocsProperties properties) {
         this.vectorStorePortProvider = vectorStorePortProvider;
-        this.llmPort                 = llmPort;
+        this.llmPortProvider         = llmPortProvider;
         this.properties              = properties;
     }
 
     @Override
     public ChatResponse answer(ChatRequest request) {
         String safeQuestion = sanitize(request.question());
+        LlmPort llmPort = llmPortProvider.getIfAvailable();
+        if (llmPort == null) return new ChatResponse("AI chat is not configured. Please add an LLM provider (e.g. spring-ai-starter-model-ollama).");
         log.debug("[APIScope] Processing question: {}", safeQuestion);
         String answer = llmPort.complete(systemPrompt(), context(safeQuestion), safeQuestion);
         if (answer == null || answer.isBlank()) answer = FALLBACK_ANSWER;
@@ -98,6 +100,8 @@ public class AgenticDocsChatService implements ChatPort {
     @Override
     public Flux<String> streamAnswer(ChatRequest request) {
         String safeQuestion = sanitize(request.question());
+        LlmPort llmPort = llmPortProvider.getIfAvailable();
+        if (llmPort == null) return Flux.just("AI chat is not configured. Please add an LLM provider.");
         log.debug("[APIScope] Streaming question: {}", safeQuestion);
         return llmPort.stream(systemPrompt(), context(safeQuestion), safeQuestion);
     }

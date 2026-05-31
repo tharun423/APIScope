@@ -36,9 +36,12 @@ class AgenticDocsChatServiceTest {
                 new AgenticDocsProperties.Cors(List.of("http://localhost:5173"))
         );
         @SuppressWarnings("unchecked")
-        ObjectProvider<VectorStorePort> provider = mock(ObjectProvider.class);
-        when(provider.getIfAvailable()).thenReturn(vectorStorePort);
-        service = new AgenticDocsChatService(provider, llmPort, props);
+        ObjectProvider<VectorStorePort> vsProvider = mock(ObjectProvider.class);
+        when(vsProvider.getIfAvailable()).thenReturn(vectorStorePort);
+        @SuppressWarnings("unchecked")
+        ObjectProvider<LlmPort> llmProvider = mock(ObjectProvider.class);
+        when(llmProvider.getIfAvailable()).thenReturn(llmPort);
+        service = new AgenticDocsChatService(vsProvider, llmProvider, props);
     }
 
     @Test
