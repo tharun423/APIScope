@@ -6,8 +6,9 @@
 
     <groupId>io.github.tharun423</groupId>
     <artifactId>apiscope-parent</artifactId>
-    <version>1.0.0</version>
+    <version>1.0.4</version>
     <packaging>pom</packaging>
+    <!-- To release: mvn versions:set -DnewVersion=X.Y.Z then mvn clean deploy -P release -->
     <name>APIScope Parent</name>
     <description>APIScope — Inspect, explore and trace your Spring Boot APIs with AI-powered documentation and real-time execution flow visualization</description>
     <url>https://github.com/tharun423/APIScope</url>
@@ -34,7 +35,7 @@
         <connection>scm:git:git://github.com/tharun423/APIScope.git</connection>
         <developerConnection>scm:git:ssh://github.com/tharun423/APIScope.git</developerConnection>
         <url>https://github.com/tharun423/APIScope</url>
-        <tag>v1.0.0</tag>
+        <tag>v1.0.4</tag>
     </scm>
 
     <issueManagement>
@@ -101,11 +102,6 @@
     </dependencyManagement>
 
     <build>
-        <!--
-            Source and Javadoc JARs are attached unconditionally so that every
-            `mvn deploy` — with or without -P release — satisfies Maven Central's
-            requirement for sources and documentation artifacts.
-        -->
         <plugins>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
@@ -123,7 +119,6 @@
                 <artifactId>maven-javadoc-plugin</artifactId>
                 <version>3.7.0</version>
                 <configuration>
-                    <!-- html and syntax checks only; avoids false positives on @param ordering -->
                     <doclint>html,syntax</doclint>
                     <quiet>true</quiet>
                 </configuration>
@@ -188,15 +183,6 @@
         </repository>
     </repositories>
 
-    <!--
-        Release profile: activate with -P release
-        mvn clean deploy -P release
-        Requires:
-          - A GPG key set up locally (run: gpg -gen-key)
-          - Sonatype Central Portal credentials in ~/.m2/settings.xml under server id 'central'
-        Sources and Javadoc JARs are always produced (see main <build> section above).
-        This profile adds GPG signing and wires the Central Publishing plugin.
-    -->
     <profiles>
         <profile>
             <id>release</id>

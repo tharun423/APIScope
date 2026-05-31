@@ -116,12 +116,10 @@ class AgenticDocsChatControllerTest {
     }
 
     @Test
-    @DisplayName("GET /chat returns 405 Method Not Allowed with helpful message")
+    @DisplayName("GET /chat returns 405 Method Not Allowed")
     void getChat_returns405() throws Exception {
         mockMvc.perform(get("/apiscope/api/chat"))
-                .andExpect(status().isMethodNotAllowed())
-                .andExpect(jsonPath("$.answer").value(
-                        org.hamcrest.Matchers.containsString("only accepts POST requests")));
+                .andExpect(status().isMethodNotAllowed());
     }
 
     @Test

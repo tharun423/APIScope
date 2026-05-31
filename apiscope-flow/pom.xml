@@ -7,7 +7,7 @@
     <parent>
         <groupId>io.github.tharun423</groupId>
         <artifactId>apiscope-parent</artifactId>
-        <version>1.0.0</version>
+        <version>1.0.4</version>
         <relativePath>../pom.xml</relativePath>
     </parent>
 
@@ -15,59 +15,34 @@
     <packaging>jar</packaging>
     <name>APIScope Flow</name>
 
-    <properties>
-        <maven.deploy.skip>true</maven.deploy.skip>
-    </properties>
-    <description>
-        Real-time API execution flow visualizer for Agentic Docs.
-        Uses Spring AOP to intercept method calls and SSE to stream live trace events to the UI.
-        Bundled into agentic-docs-spring-boot-starter — enabled via agentic.docs.flow.enabled=true.
-    </description>
+    <description>Real-time API execution flow visualizer for APIScope. Uses Spring AOP to intercept method calls and SSE to stream live trace events to the UI.</description>
     <url>https://github.com/tharun423/APIScope</url>
 
     <dependencies>
-        <!-- Spring Web MVC — provided by the host app -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-web</artifactId>
             <scope>provided</scope>
         </dependency>
-
-        <!-- AOP support — brings aspectjweaver which enables @Aspect processing -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-aop</artifactId>
         </dependency>
-
-        <!-- AutoConfiguration support — provided by the host starter -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-autoconfigure</artifactId>
             <scope>provided</scope>
         </dependency>
-
-        <!--
-            Generates spring-autoconfigure-metadata.properties at build time.
-            Allows Spring Boot to skip condition evaluation for inactive auto-configs.
-            Must be optional so it is not transitive.
-        -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-autoconfigure-processor</artifactId>
             <optional>true</optional>
         </dependency>
-
-        <!-- Test support -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-test</artifactId>
             <scope>test</scope>
         </dependency>
-
-        <!--
-            Hibernate StatementInspector — used by FlowStatementInspector to capture SQL queries
-            per traced method call. Marked optional so the library remains usable without JPA.
-        -->
         <dependency>
             <groupId>org.hibernate.orm</groupId>
             <artifactId>hibernate-core</artifactId>

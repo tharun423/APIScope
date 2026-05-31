@@ -7,7 +7,7 @@
     <parent>
         <groupId>io.github.tharun423</groupId>
         <artifactId>apiscope-parent</artifactId>
-        <version>1.0.0</version>
+        <version>1.0.4</version>
         <relativePath>../pom.xml</relativePath>
     </parent>
 
@@ -22,45 +22,28 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-web</artifactId>
         </dependency>
-
-        <!-- The starter wires up all Agentic Docs beans automatically -->
         <dependency>
             <groupId>io.github.tharun423</groupId>
             <artifactId>apiscope-spring-boot-starter</artifactId>
             <version>${project.version}</version>
         </dependency>
-
-        <!--
-            Ollama LLM + embedding provider.
-            Declared explicitly here because it is marked <optional> in the starter
-            (library consumers should choose their own LLM). The sample app always
-            uses Ollama, so it must pull this in directly.
-        -->
         <dependency>
             <groupId>org.springframework.ai</groupId>
             <artifactId>spring-ai-starter-model-ollama</artifactId>
         </dependency>
-
-        <!-- Actuator: exposes /actuator/metrics for live HTTP request metrics (Micrometer) -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-actuator</artifactId>
         </dependency>
-
-        <!-- Spring Data JPA — real persistence for the Flow Tracer demo -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-data-jpa</artifactId>
         </dependency>
-
-        <!-- H2 in-memory database — zero-config, auto-seeded via data.sql -->
         <dependency>
             <groupId>com.h2database</groupId>
             <artifactId>h2</artifactId>
             <scope>runtime</scope>
         </dependency>
-
-        <!-- Test: Spring Boot integration test support (MockMvc, @SpringBootTest, @MockBean) -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-test</artifactId>
@@ -68,19 +51,12 @@
         </dependency>
     </dependencies>
 
-    <!-- Ollama is the only LLM provider. Set spring.profiles.active=ollama in application.properties. -->
-
     <build>
         <plugins>
             <plugin>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
             </plugin>
-            <!--
-                Allow Mockito/Byte Buddy to run on Java 25+ (experimental mode).
-                Byte Buddy officially supports up to Java 24; this flag unlocks
-                support for newer JVM versions without upgrading Mockito.
-            -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
@@ -88,11 +64,6 @@
                     <argLine>-Dnet.bytebuddy.experimental=true</argLine>
                 </configuration>
             </plugin>
-            <!--
-                Exclude this sample application from Maven Central deployment.
-                It is a runnable demo, not a publishable library artifact.
-                Run: mvn clean deploy -P release  from the root — this module will be skipped.
-            -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-deploy-plugin</artifactId>
@@ -100,12 +71,16 @@
                     <skip>true</skip>
                 </configuration>
             </plugin>
-            <!--
-                The parent POM attaches sources and Javadoc JARs for every module.
-                Skip both for the sample app — it is never published to Central
-                and the Spring Boot fat-JAR repackage would otherwise produce
-                misleading library artifacts.
-            -->
+            <plugin>
+                <groupId>org.sonatype.central</groupId>
+                <artifactId>central-publishing-maven-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>injected-central-publishing</id>
+                        <phase>none</phase>
+                    </execution>
+                </executions>
+            </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-source-plugin</artifactId>

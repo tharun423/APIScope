@@ -7,7 +7,7 @@
     <parent>
         <groupId>io.github.tharun423</groupId>
         <artifactId>apiscope-parent</artifactId>
-        <version>1.0.0</version>
+        <version>1.0.4</version>
         <relativePath>../pom.xml</relativePath>
     </parent>
 
@@ -18,50 +18,29 @@
     <url>https://github.com/tharun423/APIScope</url>
 
     <dependencies>
-        <!-- AutoConfiguration support -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-autoconfigure</artifactId>
         </dependency>
-
-        <!-- Core scanning + chat logic -->
         <dependency>
             <groupId>io.github.tharun423</groupId>
             <artifactId>apiscope-core</artifactId>
             <version>${project.version}</version>
         </dependency>
-
-        <!-- Flow Tracer: AOP + SSE real-time execution visualizer (opt-in via agentic.docs.flow.enabled=true) -->
         <dependency>
             <groupId>io.github.tharun423</groupId>
             <artifactId>apiscope-flow</artifactId>
             <version>${project.version}</version>
         </dependency>
-
-        <!-- Source: https://mvnrepository.com/artifact/org.springframework.ai/spring-ai-model -->
         <dependency>
             <groupId>org.springframework.ai</groupId>
             <artifactId>spring-ai-model</artifactId>
         </dependency>
-
-        <!-- SimpleVectorStore is provided transitively via spring-ai-vector-store in the core module -->
-
-        <!--
-            Ollama provider (local, free, offline).
-            Marked optional so consumers that use a different LLM (OpenAI, Azure, etc.)
-            are not forced to pull in Ollama dependencies.
-        -->
         <dependency>
             <groupId>org.springframework.ai</groupId>
             <artifactId>spring-ai-starter-model-ollama</artifactId>
             <optional>true</optional>
         </dependency>
-
-        <!--
-            Generates spring-autoconfigure-metadata.properties at build time.
-            Allows Spring Boot to skip condition evaluation for inactive auto-configs,
-            improving startup performance. Must be optional so it is not transitive.
-        -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-autoconfigure-processor</artifactId>
