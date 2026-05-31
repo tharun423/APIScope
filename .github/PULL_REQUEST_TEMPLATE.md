@@ -13,7 +13,7 @@
 Closes # <!-- link the GitHub issue number, e.g. Closes #42 -->
 
 ## How Was This Tested?
-- [ ] Added unit tests in `agentic-docs-core/src/test/`
+- [ ] Added unit tests in `apiscope-core/src/test/`
 - [ ] Manually tested against the sample app with OpenAI
 - [ ] Manually tested against the sample app with Ollama
 - [ ] No testing needed (docs / comment change only)

@@ -24,3 +24,4 @@ Thumbs.db
 *.log
 
 .apiscope-vector-store.json
+apiscope-vector-store.json

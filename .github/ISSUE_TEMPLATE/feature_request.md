@@ -1,6 +1,6 @@
 ---
 name: Feature Request
-about: Suggest an idea or improvement for Agentic Docs
+about: Suggest an idea or improvement for APIScope
 title: "[FEATURE] "
 labels: enhancement
 assignees: ''
@@ -8,7 +8,7 @@ assignees: ''
 
 ## Problem Statement
 What problem does this feature solve? Who is affected?
-(e.g. "As a developer integrating Agentic Docs, I can't configure the system prompt, so I'm forced to fork the library to change it.")
+(e.g. "As a developer integrating APIScope, I can't configure the system prompt, so I'm forced to fork the library to change it.")
 
 ## Proposed Solution
 Describe the feature you'd like. Be as specific as possible.

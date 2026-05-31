@@ -14,7 +14,7 @@
     <artifactId>apiscope-spring-boot-starter</artifactId>
     <packaging>jar</packaging>
     <name>APIScope Spring Boot Starter</name>
-    <description>Spring Boot auto-configuration starter that wires up Agentic Docs with zero configuration for Ollama.</description>
+    <description>Spring Boot auto-configuration starter that wires up APIScope with zero configuration for Ollama.</description>
     <url>https://github.com/tharun423/APIScope</url>
 
     <dependencies>
