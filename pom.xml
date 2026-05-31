@@ -4,26 +4,65 @@
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
 
-    <groupId>com.agentic.docs</groupId>
-    <artifactId>agentic-docs-parent</artifactId>
-    <version>1.0.0-SNAPSHOT</version>
+    <groupId>io.github.tharun423</groupId>
+    <artifactId>apiscope-parent</artifactId>
+    <version>1.0.4</version>
     <packaging>pom</packaging>
-    <name>Agentic Docs Parent</name>
-    <description>The Future of API Interaction</description>
+    <!-- To release: mvn versions:set -DnewVersion=X.Y.Z then mvn clean deploy -P release -->
+    <name>APIScope Parent</name>
+    <description>APIScope — Inspect, explore and trace your Spring Boot APIs with AI-powered documentation and real-time execution flow visualization</description>
+    <url>https://github.com/tharun423/APIScope</url>
+
+    <licenses>
+        <license>
+            <name>Apache License, Version 2.0</name>
+            <url>https://www.apache.org/licenses/LICENSE-2.0</url>
+            <distribution>repo</distribution>
+        </license>
+    </licenses>
+
+    <developers>
+        <developer>
+            <id>tharun423</id>
+            <name>tharun</name>
+            <email>tt8679557@gmail.com</email>
+            <url>https://github.com/tharun423</url>
+            <roles><role>Lead Developer</role></roles>
+        </developer>
+    </developers>
+
+    <scm>
+        <connection>scm:git:git://github.com/tharun423/APIScope.git</connection>
+        <developerConnection>scm:git:ssh://github.com/tharun423/APIScope.git</developerConnection>
+        <url>https://github.com/tharun423/APIScope</url>
+        <tag>v1.0.4</tag>
+    </scm>
+
+    <issueManagement>
+        <system>GitHub</system>
+        <url>https://github.com/tharun423/APIScope/issues</url>
+    </issueManagement>
+
+    <ciManagement>
+        <system>GitHub Actions</system>
+        <url>https://github.com/tharun423/APIScope/actions</url>
+    </ciManagement>
 
     <modules>
-        <module>agentic-docs-core</module>
-        <module>agentic-docs-spring-boot-starter</module>
-        <module>agentic-docs-sample-app</module>
+        <module>apiscope-core</module>
+        <module>apiscope-flow</module>
+        <module>apiscope-spring-boot-starter</module>
+        <module>apiscope-sample-app</module>
     </modules>
 
     <properties>
         <java.version>21</java.version>
         <maven.compiler.source>21</maven.compiler.source>
         <maven.compiler.target>21</maven.compiler.target>
-        <spring-boot.version>3.4.0</spring-boot.version>
-        <spring-ai.version>1.0.0-M6</spring-ai.version>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <spring-boot.version>3.4.0</spring-boot.version>
+        <spring-ai.version>1.0.0</spring-ai.version>
+        <bucket4j.version>8.14.0</bucket4j.version>
     </properties>
 
     <dependencyManagement>
@@ -42,17 +81,136 @@
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
+            <!-- Explicit version for artifacts not always managed by the BOM -->
+            <dependency>
+                <groupId>org.springframework.ai</groupId>
+                <artifactId>spring-ai-model</artifactId>
+                <version>${spring-ai.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.springframework.ai</groupId>
+                <artifactId>spring-ai-starter-model-ollama</artifactId>
+                <version>${spring-ai.version}</version>
+            </dependency>
+            <!-- Rate limiting: token-bucket, zero external infrastructure -->
+            <dependency>
+                <groupId>com.bucket4j</groupId>
+                <artifactId>bucket4j_jdk17-core</artifactId>
+                <version>${bucket4j.version}</version>
+            </dependency>
         </dependencies>
     </dependencyManagement>
 
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-source-plugin</artifactId>
+                <version>3.3.1</version>
+                <executions>
+                    <execution>
+                        <id>attach-sources</id>
+                        <goals><goal>jar-no-fork</goal></goals>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-javadoc-plugin</artifactId>
+                <version>3.7.0</version>
+                <configuration>
+                    <doclint>html,syntax</doclint>
+                    <quiet>true</quiet>
+                </configuration>
+                <executions>
+                    <execution>
+                        <id>attach-javadocs</id>
+                        <goals><goal>jar</goal></goals>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+
+        <pluginManagement>
+            <plugins>
+                <plugin>
+                    <groupId>org.springframework.boot</groupId>
+                    <artifactId>spring-boot-maven-plugin</artifactId>
+                    <version>${spring-boot.version}</version>
+                </plugin>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-surefire-plugin</artifactId>
+                    <version>3.2.5</version>
+                </plugin>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-deploy-plugin</artifactId>
+                    <version>3.1.2</version>
+                </plugin>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-compiler-plugin</artifactId>
+                    <version>3.13.0</version>
+                    <configuration>
+                        <!-- <release> supersedes <source>/<target> and prevents cross-compilation issues -->
+                        <release>21</release>
+                        <parameters>true</parameters>
+                    </configuration>
+                </plugin>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-gpg-plugin</artifactId>
+                    <version>3.2.4</version>
+                </plugin>
+                <plugin>
+                    <groupId>org.sonatype.central</groupId>
+                    <artifactId>central-publishing-maven-plugin</artifactId>
+                    <version>0.6.0</version>
+                    <extensions>true</extensions>
+                </plugin>
+            </plugins>
+        </pluginManagement>
+    </build>
+
+    <!-- Spring AI 1.0.0 GA is on Maven Central -->
     <repositories>
         <repository>
-            <id>spring-milestones</id>
-            <name>Spring Milestones</name>
-            <url>https://repo.spring.io/milestone</url>
-            <snapshots>
-                <enabled>false</enabled>
-            </snapshots>
+            <id>central</id>
+            <name>Maven Central</name>
+            <url>https://repo1.maven.org/maven2</url>
+            <snapshots><enabled>false</enabled></snapshots>
         </repository>
     </repositories>
+
+    <profiles>
+        <profile>
+            <id>release</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-gpg-plugin</artifactId>
+                        <executions>
+                            <execution>
+                                <id>sign-artifacts</id>
+                                <phase>verify</phase>
+                                <goals><goal>sign</goal></goals>
+                            </execution>
+                        </executions>
+                    </plugin>
+                    <plugin>
+                        <groupId>org.sonatype.central</groupId>
+                        <artifactId>central-publishing-maven-plugin</artifactId>
+                        <extensions>true</extensions>
+                        <configuration>
+                            <publishingServerId>central</publishingServerId>
+                            <autoPublish>false</autoPublish>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
+
 </project>

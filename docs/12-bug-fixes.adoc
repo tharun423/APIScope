@@ -1,0 +1,639 @@
+= Bug Fixes & Dependency Resolution Guide
+:toc: left
+:toc-title: Table of Contents
+:toclevels: 3
+:icons: font
+:source-highlighter: highlight.js
+:doctype: article
+
+== Overview
+
+This document captures the runtime and build-time bugs encountered in the *Agentic Docs* project, their root causes, and the exact fixes applied. All issues stem from Spring AI dependency mismatches introduced when migrating from milestone (`1.0.0-M6`) to GA (`1.0.0`) releases, with an additional MVC routing issue causing HTTP 405 errors.
+
+---
+
+== Bug 1 — Duplicate `vectorStore` Bean at Startup
+
+=== Error
+
+[source,text]
+----
+APPLICATION FAILED TO START
+
+Description:
+
+The bean 'vectorStore', defined in class path resource
+[org/springframework/ai/vectorstore/pgvector/autoconfigure/PgVectorStoreAutoConfiguration.class],
+could not be registered. A bean with that name has already been defined in class path resource
+[com/agentic/docs/core/config/VectorStoreConfig.class] and overriding is disabled.
+
+Action:
+Consider renaming one of the beans or enabling overriding by
+setting spring.main.allow-bean-definition-overriding=true
+----
+
+=== Root Cause
+
+The `agentic-docs-spring-boot-starter` module had an explicit dependency on `spring-ai-starter-vector-store-pgvector`. This pulled in `PgVectorStoreAutoConfiguration`, which unconditionally registers its own `vectorStore` bean.
+
+The project's own `VectorStoreConfig` also registers a `vectorStore` bean (an in-memory `SimpleVectorStore`) annotated with `@ConditionalOnMissingBean(VectorStore.class)`. However, the bean *name* collision (`vectorStore`) is detected by Spring before the condition is evaluated, causing the startup failure.
+
+=== Affected File
+
+`agentic-docs-spring-boot-starter/pom.xml`
+
+=== Fix
+
+Remove the `spring-ai-starter-vector-store-pgvector` dependency entirely. The project uses an in-memory `SimpleVectorStore` — PgVector is not required.
+
+[source,xml]
+----
+<!-- REMOVED — caused conflicting vectorStore bean registration -->
+<!--
+<dependency>
+    <groupId>org.springframework.ai</groupId>
+    <artifactId>spring-ai-starter-vector-store-pgvector</artifactId>
+    <version>1.0.4</version>
+    <scope>compile</scope>
+</dependency>
+-->
+----
+
+---
+
+== Bug 2 — `NoSuchMethodError`: Incompatible Spring AI Versions at Runtime
+
+=== Error
+
+[source,text]
+----
+APPLICATION FAILED TO START
+
+Description:
+
+An attempt was made to call a method that does not exist. The attempt was made from the following location:
+
+    org.springframework.ai.model.tool.autoconfigure.ToolCallingAutoConfiguration
+        .toolCallingManager(ToolCallingAutoConfiguration.java:96)
+
+The following method did not exist:
+
+    'void org.springframework.ai.model.tool.DefaultToolCallingManager
+        .setObservationConvention(org.springframework.ai.tool.observation.ToolCallingObservationConvention)'
+
+The calling method's class was loaded from:
+    spring-ai-autoconfigure-model-tool-1.0.0.jar
+
+The called method's class was loaded from:
+    spring-ai-core-1.0.0-M6.jar
+----
+
+=== Root Cause
+
+A **version split** between Spring AI artifacts:
+
+[cols="2,1,1", options="header"]
+|===
+| Artifact | Version loaded | Source
+
+| `spring-ai-autoconfigure-model-tool` | `1.0.0` (GA) | Transitive via starters
+| `spring-ai-model` (via `spring-ai-core`) | `1.0.0-M6` | Hardcoded in child poms
+|===
+
+Each child module (`agentic-docs-core`, `agentic-docs-spring-boot-starter`, `agentic-docs-sample-app`) had `spring-ai-core` pinned explicitly to `1.0.0-M6`, overriding the BOM-managed `1.0.0`. The `DefaultToolCallingManager` API changed between M6 and GA — the `setObservationConvention` method was added in GA — so the GA autoconfigure jar failed to call it on the M6 class.
+
+=== Affected Files
+
+* `agentic-docs-core/pom.xml`
+* `agentic-docs-spring-boot-starter/pom.xml`
+* `agentic-docs-sample-app/pom.xml`
+
+=== Fix
+
+Remove all hardcoded `1.0.0-M6` version tags from child poms and let the `spring-ai-bom:1.0.0` BOM (declared in the parent pom) manage versions uniformly.
+
+[source,xml]
+----
+<!-- BEFORE (wrong — pins an incompatible milestone version) -->
+<dependency>
+    <groupId>org.springframework.ai</groupId>
+    <artifactId>spring-ai-core</artifactId>
+    <version>1.0.0-M6</version>    <!-- ← remove this -->
+    <scope>compile</scope>
+</dependency>
+
+<!-- AFTER (correct — version governed by spring-ai-bom:1.0.0) -->
+<dependency>
+    <groupId>org.springframework.ai</groupId>
+    <artifactId>spring-ai-core</artifactId>
+</dependency>
+----
+
+---
+
+== Bug 3 — `spring-ai-core:1.0.0` Does Not Exist on Maven Central
+
+=== Error
+
+[source,text]
+----
+[WARNING] The POM for org.springframework.ai:spring-ai-core:jar:1.0.0 is missing,
+          no dependency information available
+
+[ERROR] dependency: org.springframework.ai:spring-ai-core:jar:1.0.0 (compile)
+        org.springframework.ai:spring-ai-core:jar:1.0.0 was not found in
+        https://repo1.maven.org/maven2
+----
+
+=== Root Cause
+
+In **Spring AI 1.0.0 GA**, the monolithic `spring-ai-core` artifact was **split into multiple focused modules**. The artifact `spring-ai-core` no longer exists at version `1.0.0` on Maven Central. Referencing it (even without a hardcoded version) via the BOM still fails because the BOM does not manage it.
+
+The replacement artifacts are:
+
+[cols="2,2", options="header"]
+|===
+| Class / Package | GA Artifact
+
+| `EmbeddingModel`, `Document` | `spring-ai-model`
+| `VectorStore`, `SimpleVectorStore`, `SearchRequest` | `spring-ai-vector-store`
+| `ChatClient` | `spring-ai-client-chat`
+|===
+
+=== Affected Files
+
+* `agentic-docs-core/pom.xml`
+* `agentic-docs-spring-boot-starter/pom.xml`
+* `agentic-docs-sample-app/pom.xml`
+* `pom.xml` (parent — `dependencyManagement` section)
+
+=== Fix
+
+Replace all references to `spring-ai-core` with the three correct GA artifacts in `agentic-docs-core/pom.xml`:
+
+[source,xml]
+----
+<!-- EmbeddingModel, Document -->
+<dependency>
+    <groupId>org.springframework.ai</groupId>
+    <artifactId>spring-ai-model</artifactId>
+</dependency>
+
+<!-- VectorStore, SimpleVectorStore, SearchRequest -->
+<dependency>
+    <groupId>org.springframework.ai</groupId>
+    <artifactId>spring-ai-vector-store</artifactId>
+</dependency>
+
+<!-- ChatClient -->
+<dependency>
+    <groupId>org.springframework.ai</groupId>
+    <artifactId>spring-ai-client-chat</artifactId>
+</dependency>
+----
+
+Update the parent `pom.xml` `dependencyManagement` section:
+
+[source,xml]
+----
+<!-- BEFORE -->
+<dependency>
+    <groupId>org.springframework.ai</groupId>
+    <artifactId>spring-ai-core</artifactId>
+    <version>${spring-ai.version}</version>
+</dependency>
+
+<!-- AFTER -->
+<dependency>
+    <groupId>org.springframework.ai</groupId>
+    <artifactId>spring-ai-model</artifactId>
+    <version>${spring-ai.version}</version>
+</dependency>
+----
+
+---
+
+== Summary of All Changes
+
+[cols="2,3,3", options="header"]
+|===
+| File | Change | Reason
+
+| `agentic-docs-spring-boot-starter/pom.xml`
+| Removed `spring-ai-starter-vector-store-pgvector` dependency
+| Eliminated conflicting `vectorStore` bean from `PgVectorStoreAutoConfiguration`
+
+| `agentic-docs-core/pom.xml`
+| Replaced `spring-ai-core:1.0.0-M6` with `spring-ai-model` + `spring-ai-vector-store` + `spring-ai-client-chat`
+| `spring-ai-core` does not exist at GA; replaced with correct split artifacts
+
+| `agentic-docs-spring-boot-starter/pom.xml`
+| Replaced `spring-ai-core:1.0.0-M6` with `spring-ai-model`
+| Version alignment with Spring AI 1.0.0 GA BOM
+
+| `agentic-docs-sample-app/pom.xml`
+| Replaced `spring-ai-core:1.0.0-M6` with `spring-ai-model`
+| Version alignment with Spring AI 1.0.0 GA BOM
+
+| `pom.xml` (parent)
+| Updated `dependencyManagement` from `spring-ai-core` to `spring-ai-model`
+| `spring-ai-core` artifact does not exist in Spring AI 1.0.0 GA
+
+| `ApiMetadataScanner.java`
+| Added `@Qualifier("requestMappingHandlerMapping")` to constructor injection
+| Ensures the MVC handler mapping bean is used, not any actuator/framework variant
+
+| `AgenticDocsChatController.java`
+| Added `@GetMapping("/chat")` returning a 405 with a helpful message
+| Prevents Whitelabel Error Page when the endpoint is visited directly in the browser
+
+| `AgenticDocsMvcConfigurer.java` _(new file)_
+| Created `WebMvcConfigurer`: root redirect `/` → `/agentic-docs/`, `/agentic-docs` → `/agentic-docs/`, global CORS for `/agentic-docs/api/**`
+| Fixes 404 on `/agentic-docs` (no trailing slash), 405 on root navigation, and handles CORS preflight OPTIONS requests
+|===
+
+---
+
+== Bug 5 — HTTP 404 Not Found on `/agentic-docs` (No Trailing Slash)
+
+=== Error
+
+[source,text]
+----
+Whitelabel Error Page
+
+This application has no explicit mapping for /error,
+so you are seeing this as a fallback.
+
+Wed Apr 29 10:19:22 IST 2026
+There was an unexpected error (type=Not Found, status=404).
+----
+
+=== Root Cause
+
+The React UI is bundled as a static resource at:
+
+[source]
+----
+classpath:/static/agentic-docs/index.html
+----
+
+Spring Boot's static resource handler serves this file at the URL path `/agentic-docs/index.html` and also at `/agentic-docs/` (directory-style lookup). However, navigating to `/agentic-docs` **without a trailing slash** does not trigger the directory-index lookup — Spring looks for an exact file named `agentic-docs` under the static locations, finds nothing, and returns **404**.
+
+This is standard servlet behaviour: trailing-slash matters for directory-style resources.
+
+=== Affected File
+
+`agentic-docs-core/src/main/java/com/agentic/docs/core/config/AgenticDocsMvcConfigurer.java`
+
+=== Fix
+
+Add a second redirect in `AgenticDocsMvcConfigurer` for the no-trailing-slash variant:
+
+[source,java]
+----
+@Override
+public void addViewControllers(ViewControllerRegistry registry) {
+    // /  →  /agentic-docs/
+    registry.addRedirectViewController("/", "/agentic-docs/");
+
+    // /agentic-docs  →  /agentic-docs/   (trailing-slash needed for index.html lookup)
+    registry.addRedirectViewController("/agentic-docs", "/agentic-docs/");
+}
+----
+
+After this fix all of the following URLs work correctly:
+
+[cols="2,1,2", options="header"]
+|===
+| URL | Method | Result
+
+| `http://localhost:8080/`
+| GET
+| 302 → `/agentic-docs/`
+
+| `http://localhost:8080/agentic-docs`
+| GET
+| 302 → `/agentic-docs/`
+
+| `http://localhost:8080/agentic-docs/`
+| GET
+| Serves the embedded React UI (`index.html`) ✓
+|===
+
+---
+
+== Bug 4 — HTTP 405 Method Not Allowed (Whitelabel Error Page)
+
+=== Error
+
+[source,text]
+----
+Whitelabel Error Page
+
+This application has no explicit mapping for /error,
+so you are seeing this as a fallback.
+
+Wed Apr 29 10:09:43 IST 2026
+There was an unexpected error (type=Method Not Allowed, status=405).
+----
+
+=== Root Cause
+
+Three separate issues combine to produce this 405:
+
+==== 4a — No handler for the root path `/`
+
+Spring Boot's static resource handler (`SimpleUrlHandlerMapping`) handles `/**` but **only for GET and HEAD requests**. When no controller is mapped to `/` and the user navigates to `http://localhost:8080`, Spring eventually falls through to the static resource handler. Any non-GET method (e.g., a CORS preflight OPTIONS) on an unmapped path triggers a 405.
+
+==== 4b — `RequestMappingHandlerMapping` bean ambiguity
+
+`ApiMetadataScanner` injected `RequestMappingHandlerMapping` by type only:
+
+[source,java]
+----
+// BEFORE — ambiguous: Spring may inject any matching bean
+public ApiMetadataScanner(RequestMappingHandlerMapping handlerMapping) { ... }
+----
+
+Spring Boot registers multiple beans of this type (MVC handler, Springdoc handler, etc.). If the wrong one is injected, the `AgenticDocsChatController` mappings are never found. Requests to `POST /agentic-docs/api/chat` fall through to the static resource handler, which only supports GET → **405**.
+
+==== 4c — No `GET /chat` handler
+
+Visiting `http://localhost:8080/agentic-docs/api/chat` directly in a browser sends a `GET` request. With only `@PostMapping("/chat")` registered, Spring's `RequestMappingHandlerMapping` correctly returns a 405 — but the response surfaces as the raw Whitelabel Error page, giving no useful guidance.
+
+=== Affected Files
+
+* `agentic-docs-core/src/main/java/com/agentic/docs/core/scanner/ApiMetadataScanner.java`
+* `agentic-docs-core/src/main/java/com/agentic/docs/core/chat/AgenticDocsChatController.java`
+* `agentic-docs-core/src/main/java/com/agentic/docs/core/config/AgenticDocsMvcConfigurer.java` _(new)_
+
+=== Fix A — Qualify the `RequestMappingHandlerMapping` injection
+
+[source,java]
+----
+import org.springframework.beans.factory.annotation.Qualifier;
+
+// BEFORE
+public ApiMetadataScanner(RequestMappingHandlerMapping handlerMapping) { ... }
+
+// AFTER — always use the MVC bean, regardless of how many are registered
+public ApiMetadataScanner(
+        @Qualifier("requestMappingHandlerMapping") RequestMappingHandlerMapping handlerMapping) { ... }
+----
+
+=== Fix B — Add a `GET /chat` fallback handler
+
+[source,java]
+----
+@GetMapping("/chat")
+public ResponseEntity<ChatResponse> chatInfo() {
+    return ResponseEntity
+            .status(HttpStatus.METHOD_NOT_ALLOWED)
+            .body(new ChatResponse(
+                "This endpoint only accepts POST requests. " +
+                "Please use the Agentic Docs UI at /agentic-docs/ " +
+                "or POST a JSON body: {\"question\": \"...\"}"));
+}
+----
+
+=== Fix C — Add a `WebMvcConfigurer` for root redirect and global CORS
+
+New file: `AgenticDocsMvcConfigurer.java`
+
+[source,java]
+----
+@Configuration
+public class AgenticDocsMvcConfigurer implements WebMvcConfigurer {
+
+    /** Redirect bare root requests to the embedded chat UI. */
+    @Override
+    public void addViewControllers(ViewControllerRegistry registry) {
+        registry.addRedirectViewController("/", "/agentic-docs/");
+    }
+
+    /** Allow the Vite dev-server (port 5173) and any origin to call
+     *  the REST API, including CORS preflight OPTIONS requests. */
+    @Override
+    public void addCorsMappings(CorsRegistry registry) {
+        registry.addMapping("/agentic-docs/api/**")
+                .allowedOriginPatterns("*")
+                .allowedMethods("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS")
+                .allowedHeaders("*")
+                .maxAge(3600);
+    }
+}
+----
+
+After these fixes, the following navigation flows all work correctly:
+
+[cols="2,1,2", options="header"]
+|===
+| URL | Method | Result
+
+| `http://localhost:8080/`
+| GET
+| 302 redirect → `/agentic-docs/`
+
+| `http://localhost:8080/agentic-docs/`
+| GET
+| Serves the embedded React UI (`index.html`)
+
+| `http://localhost:8080/agentic-docs/api/endpoints`
+| GET
+| JSON list of scanned REST endpoints
+
+| `http://localhost:8080/agentic-docs/api/chat`
+| GET (browser)
+| 405 + helpful JSON message (no more Whitelabel page)
+
+| `http://localhost:8080/agentic-docs/api/chat`
+| POST
+| RAG chat response ✓
+
+| `http://localhost:8080/agentic-docs/api/chat`
+| OPTIONS (CORS preflight)
+| 200 ✓ (handled by global CORS config)
+|===
+
+---
+
+== Key Lesson: Spring AI Migration M6 → 1.0.0 GA
+
+When upgrading from any Spring AI milestone to **1.0.0 GA**:
+
+1. **Remove all hardcoded milestone versions** from child poms. Let `spring-ai-bom:1.0.0` govern all versions.
+2. **Replace `spring-ai-core`** with the appropriate split artifacts (`spring-ai-model`, `spring-ai-vector-store`, `spring-ai-client-chat`).
+3. **Avoid mixing** GA autoconfigure jars with milestone implementation jars — the API surface changed between milestones and GA.
+4. **Do not include** vector store starters (e.g., pgvector) unless your application actually uses that store — they register beans unconditionally.
+5. **Always qualify `RequestMappingHandlerMapping`** injection with `@Qualifier("requestMappingHandlerMapping")` in Spring Boot 3 — multiple beans of this type can be present.
+6. **Add a `WebMvcConfigurer`** to handle root redirects and global CORS explicitly — do not rely solely on `@CrossOrigin` annotations for preflight handling.
+7. **Never use a broad package prefix filter** in endpoint scanners — it will silently exclude the host application's own controllers if they share a common root package.
+8. **Always wrap external I/O calls** (embedding, LLM) in try-catch at startup — a network failure must never crash the application context.
+
+---
+
+== Bug 6 — Endpoints Not Appearing in the UI (Overly Broad Package Filter)
+
+=== Symptom
+
+The API Explorer tab loads but shows zero endpoints, even though `PaymentsController` has 8 endpoints registered.
+
+=== Root Cause
+
+`ApiMetadataScanner` used a single string prefix to filter out its own internal beans:
+
+[source,java]
+----
+// BEFORE — too broad
+private static final String SELF_PACKAGE_PREFIX = "com.agentic.docs";
+
+if (beanType.getName().startsWith(SELF_PACKAGE_PREFIX)) {
+    continue;   // ← skips EVERYTHING under com.agentic.docs.*
+}
+----
+
+The sample app's `PaymentsController` lives in `com.agentic.docs.sample.controller` — which **starts with** `"com.agentic.docs"`. So every single host-app controller was silently discarded, resulting in an empty endpoint list served to the UI.
+
+=== Affected File
+
+`agentic-docs-core/src/main/java/com/agentic/docs/core/scanner/ApiMetadataScanner.java`
+
+=== Fix
+
+Replace the single broad prefix with an explicit list of *only* the internal Agentic Docs packages:
+
+[source,java]
+----
+// AFTER — precise: only skips the framework's own internals
+private static final List<String> INTERNAL_PACKAGE_PREFIXES = List.of(
+        "com.agentic.docs.core",
+        "com.agentic.docs.autoconfigure"
+);
+
+if (beanType.getName().startsWith(INTERNAL_PACKAGE_PREFIXES.get(0)) ||
+    beanType.getName().startsWith(INTERNAL_PACKAGE_PREFIXES.get(1))) {
+    continue;
+}
+----
+
+This correctly excludes `AgenticDocsChatController` (core) and `AgenticDocsAutoConfiguration` (autoconfigure) while allowing `com.agentic.docs.sample.*` controllers through.
+
+---
+
+== Bug 7 — Event Ordering Race Condition: Ingestor Runs Before Scanner
+
+=== Symptom
+
+`ApiDocumentIngestor` logs: _"No endpoints found to ingest"_ even though the scanner later logs that it found endpoints.
+
+=== Root Cause
+
+Both components listened to `ContextRefreshedEvent` but with different mechanisms and priorities:
+
+[cols="2,1,2", options="header"]
+|===
+| Component | Mechanism | Effective order
+
+| `ApiDocumentIngestor`
+| `@EventListener` + `@Order(1)`
+| Runs **first** (lower number = higher priority)
+
+| `ApiMetadataScanner`
+| `implements ApplicationListener`
+| Runs **last** (default = `Ordered.LOWEST_PRECEDENCE`)
+|===
+
+So `ingest()` called `scanner.getScannedEndpoints()` before the scanner had run → always got an empty list.
+
+=== Affected Files
+
+* `ApiMetadataScanner.java`
+* `ApiDocumentIngestor.java`
+
+=== Fix
+
+Convert the scanner to `@EventListener` and assign explicit, sequential `@Order` values:
+
+[source,java]
+----
+// ApiMetadataScanner — runs FIRST
+@EventListener(ContextRefreshedEvent.class)
+@Order(1)
+public void onApplicationEvent(ContextRefreshedEvent event) { ... }
+
+// ApiDocumentIngestor — runs SECOND, after scanner has populated the list
+@EventListener(ContextRefreshedEvent.class)
+@Order(2)
+public void ingest() { ... }
+----
+
+---
+
+== Bug 8 — App Crash on Startup Due to Vector Store SSL Failure
+
+=== Symptom
+
+[source,text]
+----
+WARN  SpringAiRetryAutoConfiguration : Retry error. Retry count: 1,
+Exception: I/O error on POST request for "https://api.openai.com/v1/embeddings":
+PKIX path building failed: unable to find valid certification path to requested target
+
+ERROR SpringApplication : Application run failed
+org.springframework.web.client.ResourceAccessException: I/O error on POST request ...
+----
+
+Application exits with code 1. No endpoints appear in the UI because the app never finishes starting.
+
+=== Root Cause
+
+`SimpleVectorStore.add(documents)` internally calls the embedding model to compute vector dimensions **at startup**, as part of the `ContextRefreshedEvent` handler in `ApiDocumentIngestor`. In a corporate network with TLS inspection, the JVM's default truststore does not trust the proxy's certificate, causing an `SSLHandshakeException`.
+
+Because `vectorStore.add()` was called without any exception handling, the exception propagated all the way up through the Spring context refresh, aborting startup entirely — taking the API Explorer (which has no dependency on the vector store) down with it.
+
+=== Affected File
+
+`agentic-docs-core/src/main/java/com/agentic/docs/core/ingestor/ApiDocumentIngestor.java`
+
+=== Fix
+
+Wrap `vectorStore.add()` in a `try-catch` so a failed embedding call is logged as a warning but never aborts the application context:
+
+[source,java]
+----
+// BEFORE — crashes the whole app on any embedding failure
+vectorStore.add(documents);
+log.info("[AgenticDocs] Ingested {} documents.", documents.size());
+
+// AFTER — resilient: app starts, endpoints appear in UI, only AI chat is affected
+try {
+    vectorStore.add(documents);
+    log.info("[AgenticDocs] Ingested {} endpoint documents into the vector store.",
+             documents.size());
+} catch (Exception ex) {
+    log.warn("[AgenticDocs] Vector store ingestion failed ({}). " +
+             "API Explorer endpoints will still appear in the UI — " +
+             "only AI chat results may be affected.", ex.getMessage());
+}
+----
+
+=== Impact After Fix
+
+[cols="2,1,1", options="header"]
+|===
+| Feature | Before fix | After fix
+
+| App starts successfully
+| ✗ (crashes)
+| ✓
+
+| API Explorer shows endpoints
+| ✗ (app never starts)
+| ✓
+
+| AI Chat returns answers
+| ✗ (app never starts)
+| ✗ (vector store empty — SSL issue separate)
+|===
+
