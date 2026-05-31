@@ -1,110 +1,58 @@
-# ──────────────────────────────────────────────────────────────────────────────
-# Agentic Docs — Continuous Integration
-#
-# WHAT THIS FILE DOES:
-#   Automatically builds and tests the project every time someone:
-#     - Pushes code to the `main` or `develop` branch
-#     - Opens or updates a Pull Request targeting `main` or `develop`
-#
-# WHY THIS MATTERS FOR OPEN SOURCE:
-#   - Contributors get instant feedback if their change breaks the build.
-#   - Reviewers can trust that every PR has been automatically verified.
-#   - The green checkmark on a PR means "the code compiles and all tests pass".
-#
-# HOW TO SEE THE RESULTS:
-#   Go to your GitHub repo → Actions tab → click any workflow run.
-# ──────────────────────────────────────────────────────────────────────────────
-
 name: CI
 
-# ── Triggers ──────────────────────────────────────────────────────────────────
-# This workflow runs on:
-#   1. Any push to `main` or `develop`
-#   2. Any pull_request targeting `main` or `develop`
 on:
   push:
-    branches:
-      - main
-      - develop
+    branches: [main, develop]
   pull_request:
-    branches:
-      - main
-      - develop
+    branches: [main, develop]
 
-# ── Jobs ──────────────────────────────────────────────────────────────────────
-# A "job" is a group of steps that run on the same machine.
-# Multiple jobs run in parallel by default.
 jobs:
 
-  # ── Job 1: Build and test the Java backend ───────────────────────────────
   build-and-test:
     name: Build & Test (Java 21)
-    runs-on: ubuntu-latest   # Use GitHub's free Linux runner
-
+    runs-on: ubuntu-latest
     steps:
-      # Step 1: Download the repository code onto the runner machine
-      - name: Checkout source code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      # Step 2: Install Java 21 (Temurin = Eclipse's free OpenJDK distribution)
       - name: Set up Java 21
         uses: actions/setup-java@v4
         with:
           java-version: '21'
           distribution: 'temurin'
-          # Cache Maven's downloaded dependencies between runs.
-          # This makes the second CI run much faster (skips re-downloading JARs).
           cache: 'maven'
 
-      # Step 3: Build all modules and run all unit tests
-      # --no-transfer-progress suppresses the noisy download progress bars in logs
-      # -B = batch mode (no interactive prompts)
-      - name: Build with Maven and run tests
+      - name: Build and test
         run: mvn verify -B --no-transfer-progress
 
-      # Step 4 (optional): Upload the test report so you can read it in the
-      # GitHub Actions UI even after the build passes.
-      # 'if: always()' means this step runs even when tests fail — so you
-      # can still see the report to find out what went wrong.
       - name: Upload test reports
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: test-reports
           path: '**/target/surefire-reports/*.xml'
-          retention-days: 7   # Delete old reports after 7 days to save storage
+          retention-days: 7
 
-  # ── Job 2: Lint the frontend ─────────────────────────────────────────────
-  # This job runs at the same time as 'build-and-test' (in parallel).
   lint-frontend:
     name: Lint Frontend (Node.js)
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout source code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      # Install Node.js 20 — matches the version used during local development
-      - name: Set up Node.js 20
+      - name: Set up Node.js 24
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
-          # Cache the node_modules folder between runs for faster CI
+          node-version: '24'
           cache: 'npm'
           cache-dependency-path: apiscope-ui/package-lock.json
 
-      # Install all npm packages listed in package.json
-      - name: Install npm dependencies
+      - name: Install dependencies
         working-directory: apiscope-ui
-        run: npm ci   # 'npm ci' is faster and stricter than 'npm install' in CI
+        run: npm ci
 
-      # Run the ESLint linter to catch code quality issues
-      # If ESLint reports errors, this step fails and the CI run turns red.
-      - name: Run ESLint
+      - name: Lint
         working-directory: apiscope-ui
         run: npm run lint
 
-      # Verify the React app builds without errors
       - name: Build UI
         working-directory: apiscope-ui
         run: npm run build
