@@ -17,10 +17,8 @@ import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
- * Listens for {@link ApiScanCompletedEvent} and ingests discovered endpoints
- * into the {@link VectorStore} as embeddings for RAG similarity search.
- * Skips ingest if the vector store file already exists on disk.
- * Uses ObjectProvider so the app starts gracefully when no VectorStore is configured.
+ * Ingests discovered endpoints into the vector store for RAG similarity search.
+ * Skips ingest on startup if the vector store file already exists on disk.
  */
 @Component
 public class ApiDocumentIngestor {
@@ -37,35 +35,36 @@ public class ApiDocumentIngestor {
         this.properties          = properties;
     }
 
+    /** Called automatically on startup after the endpoint scan completes. */
     @EventListener
     public void onScanCompleted(ApiScanCompletedEvent event) {
         if (!ingested.compareAndSet(false, true)) return;
-        ingest(vectorStoreProvider.getIfAvailable(), event.endpoints(), false);
-    }
 
-    /**
-     * Forces a full re-ingest regardless of whether the vector store file exists.
-     * Deletes the existing file, resets the ingested flag, then re-embeds all endpoints.
-     */
-    public void reindex(List<ApiEndpointMetadata> endpoints) {
-        new File(properties.vectorStorePath()).delete();
-        ingested.set(false);
-        ingest(vectorStoreProvider.getIfAvailable(), endpoints, true);
-    }
-
-    private void ingest(VectorStore vectorStore, List<ApiEndpointMetadata> endpoints, boolean forced) {
-        if (!ingested.compareAndSet(false, true)) return;
-
-        if (vectorStore == null) {
-            log.info("[APIScope] No VectorStore available — skipping ingest. AI chat will not work.");
-            return;
-        }
-
-        if (!forced && new File(properties.vectorStorePath()).exists()) {
+        File storeFile = new File(properties.vectorStorePath());
+        if (storeFile.exists()) {
             log.info("[APIScope] Vector store found on disk — skipping ingest.");
             return;
         }
 
+        ingest(event.endpoints());
+    }
+
+    /**
+     * Forces a full re-ingest regardless of whether the vector store file exists.
+     * Deletes the existing file and re-embeds all endpoints.
+     */
+    public void reindex(List<ApiEndpointMetadata> endpoints) {
+        new File(properties.vectorStorePath()).delete();
+        ingested.set(true); // mark as handled so onScanCompleted won't re-run
+        ingest(endpoints);
+    }
+
+    private void ingest(List<ApiEndpointMetadata> endpoints) {
+        VectorStore vectorStore = vectorStoreProvider.getIfAvailable();
+        if (vectorStore == null) {
+            log.info("[APIScope] No VectorStore available — skipping ingest. AI chat will not work.");
+            return;
+        }
         if (endpoints.isEmpty()) {
             log.warn("[APIScope] No endpoints found to ingest. Is the host app a @SpringBootApplication?");
             return;
@@ -74,22 +73,15 @@ public class ApiDocumentIngestor {
         List<Document> documents = endpoints.stream()
                 .map(e -> new Document(
                         e.toLlmReadableText(),
-                        Map.of(
-                                "path",       e.path(),
-                                "httpMethod", e.httpMethod(),
-                                "controller", e.controllerName(),
-                                "method",     e.methodName()
-                        )
-                ))
+                        Map.of("path", e.path(), "httpMethod", e.httpMethod(),
+                               "controller", e.controllerName(), "method", e.methodName())))
                 .toList();
 
         try {
             vectorStore.add(documents);
             log.info("[APIScope] Ingested {} endpoint documents into the vector store.", documents.size());
         } catch (Exception ex) {
-            log.warn("[APIScope] Vector store ingestion failed ({}). "
-                    + "API Explorer still works; only AI chat results may be affected.",
-                    ex.getMessage());
+            log.warn("[APIScope] Vector store ingestion failed ({}). API Explorer still works.", ex.getMessage());
         }
     }
 }

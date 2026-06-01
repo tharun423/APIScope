@@ -82,7 +82,7 @@ Run scanning after the application is fully started.
 
 `ContextRefreshedEvent` fires after the context is fully initialized but before the application starts serving requests. This is the correct window — all beans are ready, all mappings are registered, but no requests have been served yet.
 
-The `@Order(1)` on `ApiDocumentIngestor` ensures it runs after `ApiMetadataScanner` within the same event cycle.
+The scanner publishes `ApiScanCompletedEvent` after it finishes. The ingestor listens for that domain event — this removes any `@Order` coupling between the two classes entirely. The ingestor no longer needs to know it runs "after" the scanner; it simply reacts to the event that says scanning is done.
 
 ---
 
@@ -255,14 +255,32 @@ The reflective approach (`Class.forName("io.swagger.v3.oas.annotations.Operation
 
 ## What Was Not Built (and Why)
 
-### Streaming responses
-The current implementation uses `chatClient.call().content()` which waits for the full response. Streaming (`chatClient.stream()`) would improve perceived latency for long answers. It was not implemented because it requires Server-Sent Events on the backend and a streaming reader on the frontend — significant complexity for a v1.
-
 ### Conversation history / multi-turn
-The current API is stateless — each request is independent. Multi-turn would require session management (storing message history server-side or sending it with each request). This is a natural v2 feature.
+The current API is stateless — each request is independent. Multi-turn would require session management (storing message history server-side or sending it with each request). This is a natural next feature.
 
 ### Authentication
-The `/agentic-docs/api/chat` endpoint has no authentication. For internal developer tools this is acceptable. Production deployments should add Spring Security to protect the endpoint.
+The `/apiscope/api/chat` endpoint has no authentication. For internal developer tools this is acceptable. Production deployments should add Spring Security to protect the endpoint.
 
 ### Persistent vector store by default
-`SimpleVectorStore` loses its data on restart. This means re-embedding on every startup. For a 150-endpoint API with `text-embedding-3-small`, this costs approximately $0.000015 per startup — negligible. Persistence was not added to keep the zero-infrastructure promise.
+`SimpleVectorStore` saves to a JSON file on shutdown and reloads on startup. For a 150-endpoint API this is fast and free. Teams that need a shared, clustered store can swap in pgvector or Redis by providing a `VectorStore` bean — the rest of the code is unchanged.
+
+---
+
+## Decision 11 — Splitting the God-Class Controller and Service
+
+**Problem:**  
+The original `AgenticDocsChatController` handled chat, streaming, endpoint listing, and admin reindex in one class. `AgenticDocsChatService` mixed sanitization, prompt building, context retrieval, and LLM calling. `ApiMetadataScanner` contained 10+ private parameter-extraction methods. `EndpointMetricsController` had inline success-rate calculation logic.
+
+**Decision: Extract focused helper classes**
+
+| Before | After |
+|---|---|
+| `AgenticDocsChatController` (4 concerns) | `ChatController` (chat only) + `EndpointController` (endpoints + admin) |
+| `AgenticDocsChatService` (sanitize + prompt + context + LLM) | `AgenticDocsChatService` (orchestrate) + `QuestionSanitizer` + `PromptBuilder` |
+| `ApiMetadataScanner` (scan + 5 extraction methods) | `ApiMetadataScanner` (scan only) + `ParameterExtractor` (extract only) |
+| `EndpointMetricsController` (handler + calculation) | `EndpointMetricsController` (handler) + `MetricsCalculator` (calculate) |
+
+**Reasoning:**  
+Each class now has one reason to change (Single Responsibility Principle). `QuestionSanitizer` and `PromptBuilder` can be tested with zero mocks — they are pure functions. `ParameterExtractor` can be tested against any `HandlerMethod` without wiring a full Spring context. `MetricsCalculator` can be tested by mocking only `MetricsEndpoint`.
+
+The rate limit interceptor path was also simplified: instead of applying to all `/apiscope/api/**` and then excluding specific paths, it now explicitly targets only `/apiscope/api/chat` and `/apiscope/api/chat/**`. The intent is immediately readable.

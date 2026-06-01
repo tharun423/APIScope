@@ -1,6 +1,7 @@
 package com.apiscope.core.chat;
 
 import com.apiscope.core.config.AgenticDocsProperties;
+import com.apiscope.core.ingestor.ApiDocumentIngestor;
 import com.apiscope.core.model.ChatRequest;
 import com.apiscope.core.model.ChatResponse;
 import com.apiscope.core.ratelimit.RateLimiterService;
@@ -27,11 +28,7 @@ import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
-/**
- * HTTP-layer tests for AgenticDocsChatController.
- * Gap 1+5: controller injects ChatPort; rate limiting moved to interceptor.
- */
-@WebMvcTest(AgenticDocsChatController.class)
+@WebMvcTest({ChatController.class, EndpointController.class})
 @Import(AgenticDocsChatControllerTest.TestConfig.class)
 class AgenticDocsChatControllerTest {
 
@@ -54,18 +51,15 @@ class AgenticDocsChatControllerTest {
     @Autowired
     private ObjectMapper objectMapper;
 
-    /** Gap 5: ChatPort replaces the separate ChatService mock. */
     @MockitoBean
     private ChatPort chatPort;
 
     @MockitoBean
     private EndpointRepository endpointRepository;
 
-    /**
-     * Gap 1: RateLimiterService is still mocked because the interceptor
-     * (registered by AgenticDocsMvcConfigurer) depends on it.
-     * The controller itself no longer references it.
-     */
+    @MockitoBean
+    private ApiDocumentIngestor ingestor;
+
     @MockitoBean
     private RateLimiterService rateLimiterService;
 

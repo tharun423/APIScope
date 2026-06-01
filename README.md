@@ -33,11 +33,12 @@
 ## Project Structure
 
 ```
-agentic-docs/
-├── agentic-docs-core/                 # Core RAG scanning & chat logic
-├── agentic-docs-spring-boot-starter/  # Auto-configuration & bundled UI
-├── agentic-docs-sample-app/           # Runnable demo application
-├── agentic-docs-ui/                   # React frontend source (Vite)
+apiscope/
+├── apiscope-core/                     # Core RAG scanning & chat logic
+├── apiscope-flow/                     # Real-time execution flow tracer
+├── apiscope-spring-boot-starter/      # Auto-configuration & bundled UI
+├── apiscope-sample-app/               # Runnable demo application
+├── apiscope-ui/                       # React frontend source (Vite)
 └── docs/                              # Architecture & engineering docs
 ```
 
@@ -81,7 +82,7 @@ ollama serve
 
 **Step 4:** Run the sample app:
 ```bash
-cd agentic-docs-sample-app
+cd apiscope-sample-app
 mvn spring-boot:run
 ```
 
@@ -106,7 +107,7 @@ The starter ships with a **pre-built UI** embedded in the JAR — no Node.js nee
 For UI development only:
 
 ```bash
-cd agentic-docs-ui
+cd apiscope-ui
 npm install
 npm run dev
 ```
@@ -124,9 +125,9 @@ npm run build
 
 | URL | Description |
 |-----|-------------|
-| `http://localhost:8080/` | Redirects to the Agentic Docs UI |
-| `http://localhost:8080/agentic-docs` | APIScope UI — AI Chat + API Explorer + Flow Tracer |
-| `http://localhost:8080/agentic-docs/` | Same as above (trailing slash) |
+| `http://localhost:8080/` | Redirects to the APIScope UI |
+| `http://localhost:8080/apiscope` | APIScope UI — AI Chat + API Explorer + Flow Tracer |
+| `http://localhost:8080/apiscope/` | Same as above (trailing slash) |
 | `http://localhost:8080/swagger-ui.html` | Swagger UI for the sample app |
 | `http://localhost:8080/v3/api-docs` | Raw OpenAPI JSON spec |
 
@@ -134,13 +135,17 @@ npm run build
 
 ## API Endpoints
 
-### Agentic Docs REST API
+### APIScope REST API
 
 | Method | URL | Description |
 |--------|-----|-------------|
-| `GET` | `/agentic-docs/api/endpoints` | Returns JSON list of all scanned REST endpoints (includes `pathParams`, `queryParams`, `requestBodyType`, `responseType`) |
-| `POST` | `/agentic-docs/api/chat` | RAG chat — body: `{"question": "..."}`, response: `{"answer": "..."}` |
-| `GET` | `/agentic-docs/api/chat` | Returns a helpful message (endpoint only accepts POST) |
+| `GET` | `/apiscope/api/endpoints` | Returns JSON list of all scanned REST endpoints |
+| `POST` | `/apiscope/api/chat` | RAG chat — body: `{"question": "..."}`, response: `{"answer": "..."}` |
+| `POST` | `/apiscope/api/chat/stream` | Streaming RAG chat via SSE (token by token) |
+| `POST` | `/apiscope/api/admin/reindex` | Force re-embed all endpoints into the vector store |
+| `GET` | `/apiscope/api/endpoint-metrics` | Micrometer metrics proxy (requires actuator) |
+| `POST` | `/apiscope/api/flow/execute` | Start a traced API execution (Flow Tracer) |
+| `GET` | `/apiscope/api/flow/trace/{id}` | SSE stream of trace events for a given execution |
 
 ### Sample App Endpoints (PaymentsController)
 
@@ -183,7 +188,13 @@ The same fields are also injected into the LLM context, so the AI gives more acc
 | Property | Default | Description |
 |----------|---------|-------------|
 | `spring.profiles.active` | `ollama` | LLM provider (Ollama only) |
-| `agentic.docs.enabled` | `true` | Enable/disable the RAG agent |
+| `apiscope.enabled` | `true` | Enable/disable the RAG agent |
+| `apiscope.top-k` | `5` | Number of context chunks retrieved per question |
+| `apiscope.vector-store-path` | `./apiscope-vector-store.json` | Path to persist the vector store |
+| `apiscope.rate-limit.enabled` | `true` | Enable per-IP rate limiting on chat endpoints |
+| `apiscope.rate-limit.requests-per-minute` | `20` | Max chat requests per IP per minute |
+| `apiscope.cors.allowed-origins` | `http://localhost:5173` | CORS allowed origins for API endpoints |
+| `apiscope.flow.enabled` | `false` | Enable the Flow Tracer (opt-in) |
 | `spring.ai.ollama.base-url` | `http://localhost:11434` | Ollama server URL |
 | `spring.ai.ollama.chat.options.model` | `llama3.2` | Ollama chat model |
 | `spring.ai.ollama.embedding.options.model` | `nomic-embed-text` | Ollama embedding model |

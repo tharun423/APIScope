@@ -1,188 +1,202 @@
 # 08 — API Reference
 
-## Chat Endpoint
+## Chat Endpoints
 
-The only public API endpoint exposed by Agentic Docs.
+Handled by `ChatController`. Rate limiting (20 req/min per IP by default) is applied by `RateLimitInterceptor` on all `/apiscope/api/chat/**` paths.
 
 ---
 
-### `POST /agentic-docs/api/chat`
+### `POST /apiscope/api/chat`
 
 Accepts a natural language question, performs RAG retrieval against the indexed endpoints, and returns an LLM-generated answer.
 
-#### Request
-
-**Headers:**
+**Request**
 ```
 Content-Type: application/json
 ```
-
-**Body:**
 ```json
-{
-  "question": "string"
-}
+{ "question": "How do I cancel a subscription with a partial refund?" }
 ```
 
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `question` | `string` | Yes | The natural language question from the developer |
-
-**Example:**
+**Response — 200 OK**
 ```json
-{
-  "question": "How do I cancel a subscription with a partial refund?"
-}
+{ "answer": "To cancel a subscription with a partial refund, call POST /api/v1/subscriptions/{id}/terminate ..." }
 ```
+
+**Error responses**
+
+| Status | Cause |
+|---|---|
+| `400 Bad Request` | Missing or blank `question` field |
+| `429 Too Many Requests` | Rate limit exceeded |
+| `405 Method Not Allowed` | GET request sent to this path |
 
 ---
 
-#### Response
+### `POST /apiscope/api/chat/stream`
 
-**Status:** `200 OK`
+Same RAG pipeline, but delivers the LLM response token-by-token via **Server-Sent Events**.
 
-**Body:**
-```json
-{
-  "answer": "string"
-}
-```
-
-| Field | Type | Description |
-|---|---|---|
-| `answer` | `string` | The LLM-generated answer, formatted as Markdown |
-
-**Example:**
-```json
-{
-  "answer": "To cancel a subscription with a partial refund, you need to call the **Termination API**.\n\n## Steps\n\n1. First, check the subscription's `daysActive` field:\n\n```java\nSubscription sub = subscriptionClient.getDetails(subId);\nboolean isEligible = sub.getDaysActive() < 15;\n```\n\n2. Then call `POST /api/v1/subscriptions/{id}/terminate` with:\n\n```json\n{\n  \"refundType\": \"PARTIAL\",\n  \"isProrated\": true\n}\n```"
-}
-```
-
----
-
-#### Error Responses
-
-| Status | Cause | Body |
-|---|---|---|
-| `400 Bad Request` | Missing or blank `question` field | `{ "answer": "Please provide a non-empty question." }` |
-| `429 Too Many Requests` | Rate limit exceeded (20 req/min per IP by default) | `{ "answer": "Rate limit exceeded. Please slow down." }` |
-| `405 Method Not Allowed` | GET request to `/chat` endpoint | `{ "answer": "This endpoint only accepts POST requests..." }` |
-| `500 Internal Server Error` | LLM API failure or vector store error | Spring default error body |
-
----
-
-#### CORS
-
-CORS is configured via `AgenticDocsMvcConfigurer` using the `agentic.docs.cors.allowed-origins` property (default: `http://localhost:5173`). Unlike the previous `@CrossOrigin(origins = "*")` annotation, this is configurable without recompiling.
-
-```properties
-# application.properties — allow multiple origins
-agentic.docs.cors.allowed-origins=http://localhost:5173,https://yourapp.com
-```
-
----
-
-## Example `curl` Calls
-
-### Basic question
-```bash
-curl -X POST http://localhost:8080/agentic-docs/api/chat \
-  -H "Content-Type: application/json" \
-  -d '{"question": "What endpoints are available?"}'
-```
-
-### Code generation request
-```bash
-curl -X POST http://localhost:8080/agentic-docs/api/chat \
-  -H "Content-Type: application/json" \
-  -d '{"question": "Generate Java code to process a payment"}'
-```
-
-### Multi-step workflow question
-```bash
-curl -X POST http://localhost:8080/agentic-docs/api/chat \
-  -H "Content-Type: application/json" \
-  -d '{"question": "How do I cancel a premium subscription but only trigger a partial refund if the user has been active for less than 15 days?"}'
-```
-
----
-
----
-
-### `POST /agentic-docs/api/chat/stream`
-
-Same RAG pipeline as the blocking endpoint, but delivers the LLM response token-by-token via **Server-Sent Events (SSE)**. This eliminates the long wait when using a local Ollama model.
-
-#### Request
-
-**Headers:**
-```
-Content-Type: application/json
-```
-
-**Body:**
-```json
-{
-  "question": "string"
-}
-```
-
-#### Response
-
-**Content-Type:** `text/event-stream`
-
-Each SSE event has a named `event` field:
+**Response — `text/event-stream`**
 
 | Event name | Data | Meaning |
 |---|---|---|
 | `token` | raw token text | One piece of the LLM's answer |
-| `done` | `[DONE]` | Stream has completed normally |
+| `done` | `[DONE]` | Stream completed normally |
 | `error` | error message | Something went wrong |
 
-**Example stream:**
 ```
 event: token
 data: Use
 
 event: token
-data:  POST
-
-event: token
-data:  /api/users
+data:  POST /api/v1/subscriptions/{id}/terminate
 
 event: done
 data: [DONE]
 ```
 
-The endpoint has a **3-minute SSE timeout** (`180,000 ms`) to accommodate slow first-request latency on lower-end hardware.
-
-Client disconnects automatically cancel the upstream `Flux` subscription, stopping Ollama token generation immediately.
+Client disconnects automatically cancel the upstream `Flux`, stopping Ollama token generation immediately.
 
 ---
 
-### `GET /agentic-docs/api/chat`
+## Endpoint Listing & Admin
 
-Returns `405 Method Not Allowed` with a usage hint. Useful when someone hits the endpoint in a browser or with a plain `curl` GET.
+Handled by `EndpointController`. No rate limiting applied.
+
+---
+
+### `GET /apiscope/api/endpoints`
+
+Returns the full list of scanned endpoints as JSON. Used by the API Explorer panel in the React UI.
+
+```bash
+curl http://localhost:8080/apiscope/api/endpoints
+```
+
+**Response — 200 OK** — array of `ApiEndpointMetadata`:
+
+```json
+[
+  {
+    "path": "/api/v1/subscriptions/{id}",
+    "httpMethod": "GET",
+    "controllerName": "PaymentsController",
+    "methodName": "getSubscription",
+    "description": "Get Subscription",
+    "pathParams": ["id"],
+    "requiredQueryParams": [],
+    "optionalQueryParams": [],
+    "requestBodyType": null,
+    "responseType": "Map"
+  }
+]
+```
+
+---
+
+### `POST /apiscope/api/admin/reindex`
+
+Forces a full re-embed of all scanned endpoints into the vector store. Deletes the existing vector store file and re-runs ingestion.
+
+```bash
+curl -X POST http://localhost:8080/apiscope/api/admin/reindex
+```
+
+**Response — 202 Accepted** (no body)
+
+---
+
+## Metrics
+
+Handled by `EndpointMetricsController`. Only registered when `spring-boot-starter-actuator` is on the classpath.
+
+---
+
+### `GET /apiscope/api/endpoint-metrics?uri=...&method=...`
+
+Proxies Micrometer's `http.server.requests` metric for a specific endpoint to the UI.
+
+```bash
+curl "http://localhost:8080/apiscope/api/endpoint-metrics?uri=/api/v1/subscriptions/{id}&method=GET"
+```
+
+**Response — 200 OK**
+
+```json
+{
+  "avgResponseMs": 24.3,
+  "successRate": 99.1,
+  "totalRequests": 412,
+  "available": true
+}
+```
+
+Returns `{ "available": false }` when no data exists for the given URI + method.
+
+---
+
+## Flow Tracer
+
+Handled by `FlowController` (in `apiscope-flow`). Only active when `apiscope.flow.enabled=true`.
+
+---
+
+### `POST /apiscope/api/flow/execute`
+
+Starts an async traced execution. Returns the `traceId` immediately so the browser can open the SSE stream before execution completes.
+
+**Request body:**
+```json
+{
+  "httpMethod": "POST",
+  "path": "/api/v1/subscriptions/{id}/terminate",
+  "pathParams": { "id": "sub-123" },
+  "queryParams": {},
+  "body": "{ \"refundType\": \"PARTIAL\" }",
+  "authorizationHeader": null
+}
+```
+
+**Response — 202 Accepted**
+```json
+{ "traceId": "550e8400-e29b-41d4-a716-446655440000" }
+```
+
+---
+
+### `GET /apiscope/api/flow/trace/{traceId}`
+
+SSE stream of trace events for the given execution.
+
+**Response — `text/event-stream`**
+
+| Event name | Payload | Meaning |
+|---|---|---|
+| `step` | `TraceEvent` JSON | One intercepted method call |
+| `done` | `FlowDoneEvent` JSON | Final HTTP response + total time |
+| `error` | `{ "message": "..." }` | Network or fatal error |
+
+**`TraceEvent` fields:** `traceId`, `stepIndex`, `layer` (CONTROLLER/SERVICE/REPOSITORY), `className`, `methodName`, `inputJson`, `outputJson`, `durationMs`, `status` (EXIT/ERROR), `errorMessage`, `sqlQueries`
+
+**`FlowDoneEvent` fields:** `traceId`, `httpStatus`, `responseBody`, `totalMs`, `ok`, `stepCount`
 
 ---
 
 ## Static UI Resources
 
-These are served by Spring Boot's `ResourceHttpRequestHandler` — not REST endpoints.
+Served by Spring Boot's `ResourceHttpRequestHandler`.
 
 | URL | Description |
 |---|---|
-| `GET /agentic-docs/` | React SPA entry point (index.html) |
-| `GET /agentic-docs/index.html` | Same as above |
-| `GET /agentic-docs/assets/*.js` | Vite-built JavaScript bundle |
-| `GET /agentic-docs/assets/*.css` | Vite-built CSS bundle |
+| `GET /apiscope/` | React SPA entry point (index.html) |
+| `GET /apiscope/index.html` | Same as above |
+| `GET /apiscope/assets/*.js` | Vite-built JavaScript bundle |
+| `GET /apiscope/assets/*.css` | Vite-built CSS bundle |
 
 ---
 
 ## Internal Data Contracts
-
-These are not HTTP endpoints but document the internal Java records used by the chat controller.
 
 ### `ChatRequest`
 ```java
@@ -197,22 +211,42 @@ public record ChatResponse(String answer) {}
 ### `ApiEndpointMetadata`
 ```java
 public record ApiEndpointMetadata(
-    String path,              // e.g. "/api/v1/subscriptions/{id}"
-    String httpMethod,        // e.g. "POST"
-    String controllerName,    // e.g. "PaymentsController"
-    String methodName,        // e.g. "terminateSubscription"
-    String description,       // from @Operation(summary) or camelCase-to-sentence
-    List<String> pathParams,  // e.g. ["id"]
-    List<String> queryParams, // e.g. ["page", "size"]
-    String requestBodyType,   // e.g. "CancelRequest" (null if none)
-    String responseType       // e.g. "SubscriptionDto" (unwrapped from ResponseEntity<T>)
+    String path,
+    String httpMethod,
+    String controllerName,
+    String methodName,
+    String description,
+    List<String> pathParams,
+    List<String> requiredQueryParams,
+    List<String> optionalQueryParams,
+    String requestBodyType,   // null if no @RequestBody
+    String responseType       // unwrapped from ResponseEntity<T>
 ) {}
 ```
 
-### `GET /agentic-docs/api/endpoints`
+---
 
-Returns the full list of scanned `ApiEndpointMetadata` as JSON. Used by the API Explorer panel in the React UI.
+## `curl` Examples
 
 ```bash
-curl http://localhost:8080/agentic-docs/api/endpoints
+# Ask a question
+curl -X POST http://localhost:8080/apiscope/api/chat \
+  -H "Content-Type: application/json" \
+  -d '{"question": "How do I process a payment?"}'
+
+# Stream the answer token by token
+curl -X POST http://localhost:8080/apiscope/api/chat/stream \
+  -H "Content-Type: application/json" \
+  -d '{"question": "How do I cancel a subscription with a partial refund?"}'
+
+# List all scanned endpoints
+curl http://localhost:8080/apiscope/api/endpoints
+
+# Force re-embed after adding new controllers
+curl -X POST http://localhost:8080/apiscope/api/admin/reindex
+
+# Trace a live API call
+curl -X POST http://localhost:8080/apiscope/api/flow/execute \
+  -H "Content-Type: application/json" \
+  -d '{"httpMethod":"GET","path":"/api/v1/subscriptions/{id}","pathParams":{"id":"sub-123"}}'
 ```

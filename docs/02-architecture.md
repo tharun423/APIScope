@@ -2,26 +2,26 @@
 
 ## Module Structure
 
-The project is a **Maven multi-module build** with a clean separation of concerns across four modules:
-
 ```
-agentic-docs-parent/                  ← Root POM (dependency management only)
-├── agentic-docs-core/                ← All business logic (scan, ingest, chat, ports)
-├── agentic-docs-spring-boot-starter/ ← AutoConfiguration + pre-built UI static files
-├── agentic-docs-sample-app/          ← Runnable demo application
-└── agentic-docs-ui/                  ← React 18 + Tailwind CSS source (build-time only)
+apiscope-parent/                       ← Root POM (dependency management only)
+├── apiscope-core/                     ← All business logic (scan, ingest, chat, ports)
+├── apiscope-flow/                     ← Real-time execution flow tracer (AOP + SSE)
+├── apiscope-spring-boot-starter/      ← AutoConfiguration + pre-built UI static files
+├── apiscope-sample-app/               ← Runnable demo application
+└── apiscope-ui/                       ← React 18 + Tailwind CSS source (build-time only)
 ```
 
 ### Why this split?
 
 | Module | Responsibility | Depends on |
 |---|---|---|
-| `core` | Pure logic — no Spring Boot opinions | `spring-ai-core`, `spring-web` (provided) |
-| `starter` | Wires core into any Spring Boot app | `core`, `spring-ai-starter-model-ollama` or `spring-ai-openai` |
-| `sample-app` | Demonstrates the starter in action | `starter` |
-| `ui` | React source — compiled at build time | npm only |
+| `apiscope-core` | Pure logic — scan, ingest, chat, ports | `spring-ai-*`, `spring-web` (provided) |
+| `apiscope-flow` | AOP tracing + SSE streaming | `spring-boot-starter-aop`, `spring-web` (provided) |
+| `apiscope-spring-boot-starter` | Wires core + flow into any Spring Boot app | `apiscope-core`, `apiscope-flow` |
+| `apiscope-sample-app` | Demonstrates the starter in action | `apiscope-spring-boot-starter` |
+| `apiscope-ui` | React source — compiled at build time | npm only |
 
-The `core` module has `spring-boot-starter-web` as `provided` scope. This means it compiles against Spring MVC types but does not pull in an embedded Tomcat — that comes from the host application. This is the correct pattern for library modules.
+`apiscope-core` has `spring-boot-starter-web` as `provided` scope — it compiles against Spring MVC types but does not pull in an embedded Tomcat. That comes from the host application.
 
 ---
 
@@ -31,52 +31,57 @@ The `core` module has `spring-boot-starter-web` as `provided` scope. This means 
 ┌─────────────────────────────────────────────────────────────────┐
 │                     Host Spring Boot App                        │
 │                                                                 │
-│  ┌──────────────────┐    ApiScanCompletedEvent                  │
+│  ┌──────────────────┐    ContextRefreshedEvent                  │
 │  │  @RestController │ ──────────────────────────────────┐       │
 │  │  PaymentsCtrl    │                                   ▼       │
 │  └──────────────────┘                    ┌──────────────────────┤
 │                                          │  ApiMetadataScanner  │
-│  ┌──────────────────────────────────┐    │  (reads handler      │
-│  │   agentic-docs-spring-boot-      │    │   mappings, publishes│
-│  │   starter                        │    │   domain event)      │
-│  │                                  │    └──────────┬───────────┤
-│  │  AgenticDocsAutoConfiguration    │               │           │
-│  │  @ConditionalOnProperty(         │               ▼           │
-│  │    agentic.docs.enabled=true)    │    ┌──────────────────────┤
-│  │  @ComponentScan(core)            │    │  ApiDocumentIngestor │
-│  └──────────────────────────────────┘    │  (converts to        │
-│                                          │   Documents, calls   │
-│  ┌──────────────────────────────────┐    │   vectorStore.add()) │
-│  │   VectorStoreConfig              │    └──────────┬───────────┤
-│  │   SimpleVectorStore (file-backed)│◄──────────────┘           │
+│  ┌──────────────────────────────────┐    │  + ParameterExtractor│
+│  │   AgenticDocsAutoConfiguration   │    │  → ApiScanCompleted  │
+│  │   @ConditionalOnProperty(        │    │    Event             │
+│  │     apiscope.enabled=true)       │    └──────────┬───────────┤
+│  │   @ComponentScan(apiscope.core)  │               │           │
+│  └──────────────────────────────────┘               ▼           │
+│                                          ┌──────────────────────┤
+│  ┌──────────────────────────────────┐    │  ApiDocumentIngestor │
+│  │   VectorStoreConfig              │◄───│  → vectorStore.add() │
+│  │   SimpleVectorStore (file-backed)│    └──────────────────────┤
 │  └──────────────────┬───────────────┘                           │
-│                     │  VectorStorePort.findRelevantContext()    │
+│                     │  VectorStorePort.findRelevantContext()     │
 │                     ▼                                           │
 │  ┌──────────────────────────────────┐                           │
-│  │  AgenticDocsChatService          │                           │
-│  │  (implements ChatPort)           │◄── RateLimitInterceptor   │
-│  │  sanitize() → RAG → LlmPort     │    (per-IP token bucket)  │
+│  │  AgenticDocsChatService          │◄── RateLimitInterceptor   │
+│  │  QuestionSanitizer               │    (per-IP token bucket,  │
+│  │  PromptBuilder                   │     chat paths only)      │
 │  └──────────────────┬───────────────┘                           │
-│                     │  LlmPort.complete() / LlmPort.stream()   │
+│                     │  LlmPort.complete() / stream()            │
 │                     ▼                                           │
 │  ┌──────────────────────────────────┐                           │
-│  │  LlmAdapter                      │                           │
-│  │  (Spring AI ChatClient)          │                           │
-│  │  → OpenAI gpt-4o-mini            │                           │
+│  │  LlmAdapter (Spring AI)          │                           │
 │  │  → Ollama llama3.2 (local)       │                           │
 │  └──────────────────────────────────┘                           │
 │                                                                 │
 │  ┌──────────────────────────────────┐                           │
-│  │  AgenticDocsChatController       │◄── POST /agentic-docs/    │
-│  │  POST /agentic-docs/api/chat     │        api/chat           │
-│  │  POST /agentic-docs/api/chat/    │    POST /agentic-docs/    │
-│  │       stream (SSE)               │        api/chat/stream    │
+│  │  ChatController                  │◄── POST /apiscope/api/    │
+│  │  POST /apiscope/api/chat         │        chat               │
+│  │  POST /apiscope/api/chat/stream  │    POST /apiscope/api/    │
+│  └──────────────────────────────────┘        chat/stream        │
+│                                                                 │
+│  ┌──────────────────────────────────┐                           │
+│  │  EndpointController              │◄── GET /apiscope/api/     │
+│  │  GET  /apiscope/api/endpoints    │        endpoints          │
+│  │  POST /apiscope/api/admin/reindex│                           │
 │  └──────────────────────────────────┘                           │
 │                                                                 │
 │  ┌──────────────────────────────────┐                           │
-│  │  Static Resources                │                           │
-│  │  /agentic-docs/ → React UI       │◄── Browser               │
-│  │  (served by Spring Boot)         │                           │
+│  │  FlowController (apiscope-flow)  │◄── POST /apiscope/api/    │
+│  │  POST /apiscope/api/flow/execute │        flow/execute       │
+│  │  GET  /apiscope/api/flow/trace/  │                           │
+│  └──────────────────────────────────┘                           │
+│                                                                 │
+│  ┌──────────────────────────────────┐                           │
+│  │  Static Resources                │◄── Browser               │
+│  │  /apiscope/ → React UI           │                           │
 │  └──────────────────────────────────┘                           │
 └─────────────────────────────────────────────────────────────────┘
 ```
@@ -95,25 +100,25 @@ Spring fires ContextRefreshedEvent
                │
                ├── Calls handlerMapping.getHandlerMethods()
                ├── Filters to @RestController beans only
-               ├── Skips com.agentic.docs.core.** (internal endpoints)
-               ├── Extracts: path, httpMethod, controllerName, methodName,
-               │           description, pathParams, queryParams,
-               │           requestBodyType, responseType
+               ├── Skips com.apiscope.** (internal endpoints)
+               ├── Delegates to ParameterExtractor for:
+               │       pathParams, requiredQueryParams, optionalQueryParams,
+               │       requestBodyType, responseType
                ├── Stores List<ApiEndpointMetadata> (immutable)
-               └── Publishes ApiScanCompletedEvent (domain event)
+               └── Publishes ApiScanCompletedEvent
                        │
                        ▼
                ApiDocumentIngestor.onScanCompleted()
                        │
-                       ├── If vector store JSON file exists on disk → skip ingest
-                       │         (embeddings already loaded by VectorStoreConfig)
-                       ├── Maps each endpoint → Document(toLlmReadableText(), metadata map)
-                       └── Calls vectorStore.add(documents)
+                       ├── If vector store JSON file exists → skip (already loaded)
+                       ├── Maps each endpoint → Document(toLlmReadableText(), metadata)
+                       └── vectorStore.add(documents)
                                │
                                └── EmbeddingModel.embed(text) → float[] vector
-                                       stored in SimpleVectorStore
-                                       (saved to ./agentic-docs-vector-store.json on shutdown)
+                                       saved to ./apiscope-vector-store.json on shutdown
 ```
+
+---
 
 ## Data Flow — Chat Request
 
@@ -121,62 +126,64 @@ Spring fires ContextRefreshedEvent
 User types question in React UI
        │
        ▼
-POST /agentic-docs/api/chat
-{ "question": "How do I cancel a subscription with a partial refund?" }
+POST /apiscope/api/chat  { "question": "..." }
        │
        ▼
-RateLimitInterceptor.preHandle()    ← per-IP Bucket4j token bucket
+RateLimitInterceptor.preHandle()     ← per-IP Bucket4j token bucket
        │  (if limit exceeded → HTTP 429)
        ▼
-AgenticDocsChatController.chat()
+ChatController.chat()
        │
        ▼
 AgenticDocsChatService.answer()
        │
-       ├── sanitize(question)        ← truncate to 800 chars, block injection patterns
+       ├── QuestionSanitizer.sanitize()   ← truncate to 800 chars, block injection
        │
-       ├── vectorStorePort.findRelevantContext(question, topK)
-       │       │
-       │       └── VectorStoreAdapter → vectorStore.similaritySearch(query, topK=5)
-       │               → EmbeddingModel.embed(question) → cosine similarity
-       │               → returns top-5 Document text chunks
+       ├── retrieveContext(question)
+       │       └── VectorStorePort.findRelevantContext(question, topK=5)
+       │               → cosine similarity → top-5 endpoint text chunks
        │
-       ├── Joins chunks into context string (separated by ---\n)
+       ├── PromptBuilder.systemPrompt()   ← custom or DEFAULT_SYSTEM_PROMPT
        │
-       ├── Resolves system prompt (user-configured or DEFAULT_SYSTEM_PROMPT)
+       └── LlmPort.complete(systemPrompt, context, question)
+               └── LlmAdapter → Spring AI ChatClient → Ollama / OpenAI
        │
-       └── llmPort.complete(systemPrompt, context, question)
-               │
-               └── LlmAdapter → chatClient.prompt()
-                       .system(s → s.text(template).param("context", context))
-                       .user(question)
-                       .call().content()
-                               │
-                               └── OpenAI API / Ollama (llama3.2)
-               │
-               ▼
-       ChatResponse { answer: "..." }
-               │
-               ▼
-       React renders answer as Markdown
+       ▼
+ChatResponse { answer: "..." }  →  React renders as Markdown
 ```
 
 ---
 
-## Dependency Graph
+## Data Flow — Flow Tracer Request
 
 ```
-agentic-docs-sample-app
-    └── agentic-docs-spring-boot-starter
-            ├── agentic-docs-core
-            │       ├── spring-ai-core
-            │       ├── spring-boot-starter-web (provided)
-            │       ├── bucket4j-core (rate limiting)
-            │       └── swagger-annotations (optional)
-            ├── spring-ai-starter-model-ollama   ← default (local, free)
-            │   OR
-            │   spring-ai-openai-spring-boot-starter  ← cloud, paid
-            └── spring-ai-simple-vector-store
+User clicks "Try It" in React UI
+       │
+       ▼
+POST /apiscope/api/flow/execute  { httpMethod, path, pathParams, body }
+       │
+       ▼
+FlowController.execute()
+       ├── Generates traceId (UUID)
+       ├── emitterProvider.register(traceId)   ← reserves SSE slot
+       └── executor.executeAsync(traceId, request)   ← virtual thread, returns immediately
+       │
+       ▼
+Returns { "traceId": "uuid" } immediately
+       │
+       ▼ (browser opens SSE stream)
+GET /apiscope/api/flow/trace/{traceId}
+       │
+       ▼ (virtual thread fires the actual HTTP call with X-Flow-Trace-Id header)
+FlowExecutorService.execute()
+       ├── buildSpec()   ← builds RestClient request with trace header
+       ├── Fires HTTP call to localhost:{port}{path}
+       │
+       │   (FlowAspect intercepts every @Service/@RestController/@Repository method)
+       │   └── pushes TraceEvent via FlowSseRegistry for each method call
+       │
+       └── buildDoneEvent()  ← wraps HTTP response + step count
+               └── pushDone() → SSE "done" event → browser renders call chain
 ```
 
 ---
@@ -185,151 +192,33 @@ agentic-docs-sample-app
 
 | URL | What serves it |
 |---|---|
-| `GET /agentic-docs/` | React SPA (index.html from static resources) |
-| `GET /agentic-docs/assets/*` | Vite-built JS/CSS bundles |
-| `GET /agentic-docs/api/endpoints` | `AgenticDocsChatController` — lists all scanned endpoints |
-| `POST /agentic-docs/api/chat` | `AgenticDocsChatController` — blocking RAG chat |
-| `POST /agentic-docs/api/chat/stream` | `AgenticDocsChatController` — streaming SSE chat |
-| `GET /agentic-docs/api/chat` | `AgenticDocsChatController` — returns 405 with usage hint |
+| `GET /apiscope/` | React SPA (index.html from static resources) |
+| `GET /apiscope/assets/*` | Vite-built JS/CSS bundles |
+| `GET /apiscope/api/endpoints` | `EndpointController` — lists all scanned endpoints |
+| `POST /apiscope/api/chat` | `ChatController` — blocking RAG chat |
+| `POST /apiscope/api/chat/stream` | `ChatController` — streaming SSE chat |
+| `POST /apiscope/api/admin/reindex` | `EndpointController` — forces re-embed |
+| `GET /apiscope/api/endpoint-metrics` | `EndpointMetricsController` — Micrometer proxy |
+| `POST /apiscope/api/flow/execute` | `FlowController` — starts a traced execution |
+| `GET /apiscope/api/flow/trace/{id}` | `FlowController` — SSE stream of trace events |
 | `GET /swagger-ui.html` | Springdoc (sample app only) |
 | `GET /api/v1/**` | Sample controllers (`PaymentsController`, etc.) |
 
 ---
 
-## Component Diagram
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                     Host Spring Boot App                        │
-│                                                                 │
-│  ┌──────────────────┐    ContextRefreshedEvent                  │
-│  │  @RestController │ ──────────────────────────────────┐       │
-│  │  PaymentsCtrl    │                                   ▼       │
-│  └──────────────────┘                    ┌──────────────────────┤
-│                                          │  ApiMetadataScanner  │
-│  ┌──────────────────────────────────┐    │  (reads handler      │
-│  │   agentic-docs-spring-boot-      │    │   mappings)          │
-│  │   starter                        │    └──────────┬───────────┤
-│  │                                  │               │           │
-│  │  AgenticDocsAutoConfiguration    │               ▼           │
-│  │  @ConditionalOnProperty(         │    ┌──────────────────────┤
-│  │    agentic.docs.enabled=true)    │    │  ApiDocumentIngestor │
-│  │  @ComponentScan(core)            │    │  (converts to        │
-│  └──────────────────────────────────┘    │   Documents,         │
-│                                          │   calls vectorStore) │
-│  ┌──────────────────────────────────┐    └──────────┬───────────┤
-│  │   VectorStoreConfig              │               │           │
-│  │   SimpleVectorStore (in-memory)  │◄──────────────┘           │
-│  └──────────────────┬───────────────┘                           │
-│                     │  similaritySearch(query, topK=5)          │
-│                     ▼                                           │
-│  ┌──────────────────────────────────┐                           │
-│  │  AgenticDocsChatController       │◄── POST /agentic-docs/    │
-│  │  POST /agentic-docs/api/chat     │        api/chat           │
-│  │  → inject context → ChatClient  │                           │
-│  └──────────────────┬───────────────┘                           │
-│                     │                                           │
-│                     ▼                                           │
-│  ┌──────────────────────────────────┐                           │
-│  │  OpenAI ChatModel (gpt-4o-mini)  │                           │
-│  │  OpenAI EmbeddingModel           │                           │
-│  │  (text-embedding-3-small)        │                           │
-│  └──────────────────────────────────┘                           │
-│                                                                 │
-│  ┌──────────────────────────────────┐                           │
-│  │  Static Resources                │                           │
-│  │  /agentic-docs/ → React UI       │◄── Browser               │
-│  │  (served by Spring Boot)         │                           │
-│  └──────────────────────────────────┘                           │
-└─────────────────────────────────────────────────────────────────┘
-```
-
----
-
-## Data Flow — Startup (Ingestion)
-
-```
-Application starts
-       │
-       ▼
-Spring fires ContextRefreshedEvent
-       │
-       ├─► ApiMetadataScanner.onApplicationEvent()
-       │       │
-       │       ├── Calls handlerMapping.getHandlerMethods()
-       │       ├── Filters to @RestController beans only
-       │       ├── Extracts: path, httpMethod, controllerName, methodName
-       │       ├── Reads @Operation(summary) reflectively (optional)
-       │       └── Stores List<ApiEndpointMetadata> (immutable)
-       │
-       └─► ApiDocumentIngestor.ingest()  [@Order(1) — runs after scanner]
-               │
-               ├── Reads scanner.getScannedEndpoints()
-               ├── Maps each → Document(toLlmReadableText(), metadata map)
-               └── Calls vectorStore.add(documents)
-                       │
-                       └── EmbeddingModel.embed(text) → float[] vector
-                               stored in SimpleVectorStore (in-memory HashMap)
-```
-
-## Data Flow — Chat Request
-
-```
-User types question in React UI
-       │
-       ▼
-POST /agentic-docs/api/chat
-{ "question": "How do I cancel a subscription with a partial refund?" }
-       │
-       ▼
-AgenticDocsChatController.chat()
-       │
-       ├── vectorStore.similaritySearch(query, topK=5)
-       │       │
-       │       ├── EmbeddingModel.embed(question) → query vector
-       │       └── Cosine similarity against all stored vectors
-       │               → returns top-5 Document objects
-       │
-       ├── Joins Document.getText() → context string
-       │
-       ├── chatClient.prompt()
-       │       .system(SYSTEM_PROMPT with {context} injected)
-       │       .user(question)
-       │       .call().content()
-       │               │
-       │               └── OpenAI API call (gpt-4o-mini)
-       │
-       └── Returns ChatResponse { answer: "..." }
-               │
-               ▼
-       React renders answer as Markdown
-```
-
----
-
 ## Dependency Graph
 
 ```
-agentic-docs-sample-app
-    └── agentic-docs-spring-boot-starter
-            ├── agentic-docs-core
-            │       ├── spring-ai-core
+apiscope-sample-app
+    └── apiscope-spring-boot-starter
+            ├── apiscope-core
+            │       ├── spring-ai-model
+            │       ├── spring-ai-vector-store
+            │       ├── spring-ai-client-chat
             │       ├── spring-boot-starter-web (provided)
-            │       └── swagger-annotations (optional)
-            ├── spring-ai-openai-spring-boot-starter
-            │       └── spring-ai-core
-            │       └── spring-boot-autoconfigure
-            └── spring-ai-simple-vector-store
+            │       └── bucket4j_jdk17-core (rate limiting)
+            ├── apiscope-flow
+            │       ├── spring-boot-starter-aop
+            │       └── hibernate-core (optional — SQL capture)
+            └── spring-ai-starter-model-ollama  ← default (local, free)
 ```
-
----
-
-## URL Map
-
-| URL | What serves it |
-|---|---|
-| `GET /agentic-docs/` | React SPA (index.html from static resources) |
-| `GET /agentic-docs/assets/*` | Vite-built JS/CSS bundles |
-| `POST /agentic-docs/api/chat` | `AgenticDocsChatController` |
-| `GET /swagger-ui.html` | Springdoc (sample app only) |
-| `GET /api/v1/**` | `PaymentsController` (sample app only) |
