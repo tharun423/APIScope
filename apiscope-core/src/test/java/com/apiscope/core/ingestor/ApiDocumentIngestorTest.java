@@ -6,110 +6,85 @@ import com.apiscope.core.scanner.ApiScanCompletedEvent;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.ArgumentCaptor;
-import org.mockito.Mock;
-import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.ai.document.Document;
-import org.springframework.ai.vectorstore.VectorStore;
-import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.http.MediaType;
+import org.springframework.test.web.client.MockRestServiceServer;
+import org.springframework.web.client.RestClient;
+import org.springframework.web.client.RestTemplate;
 
 import java.util.List;
 
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.Mockito.*;
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.springframework.test.web.client.match.MockRestRequestMatchers.*;
+import static org.springframework.test.web.client.response.MockRestResponseCreators.*;
 
-@ExtendWith(MockitoExtension.class)
 class ApiDocumentIngestorTest {
 
-    @Mock
-    private VectorStore vectorStore;
-
-    @Mock
-    private ObjectProvider<VectorStore> vectorStoreProvider;
-
+    private MockRestServiceServer mockServer;
     private ApiDocumentIngestor ingestor;
 
     @BeforeEach
-    void setUp() {
-        when(vectorStoreProvider.getIfAvailable()).thenReturn(vectorStore);
+    void setUp() throws Exception {
+        RestTemplate rt = new RestTemplate();
+        mockServer = MockRestServiceServer.createServer(rt);
+
         AgenticDocsProperties props = new AgenticDocsProperties(
-                true, 5, null,
-                "./nonexistent-test-store-XXXXXX.json",
-                new AgenticDocsProperties.RateLimit(true, 20),
-                new AgenticDocsProperties.Cors(List.of("http://localhost:5173"))
+                true, "http://localhost:8000",
+                new AgenticDocsProperties.RateLimit(false, 20),
+                new AgenticDocsProperties.Cors(List.of())
         );
-        ingestor = new ApiDocumentIngestor(vectorStoreProvider, props);
+        ingestor = new ApiDocumentIngestor(props);
+
+        // Replace the internal http field with mock-backed RestClient
+        var field = ApiDocumentIngestor.class.getDeclaredField("http");
+        field.setAccessible(true);
+        field.set(ingestor, RestClient.builder(rt).baseUrl("http://localhost:8000").build());
     }
 
-    private ApiScanCompletedEvent eventWith(List<ApiEndpointMetadata> endpoints) {
+    private ApiScanCompletedEvent event(List<ApiEndpointMetadata> endpoints) {
         return new ApiScanCompletedEvent(this, endpoints);
     }
 
-    @Test
-    @DisplayName("onScanCompleted() adds one Document per scanned endpoint")
-    void onScanCompleted_addsOneDocumentPerEndpoint() {
-        List<ApiEndpointMetadata> endpoints = List.of(
-                new ApiEndpointMetadata("/api/users",    "GET",  "UserController",    "getUsers",    "List users",     List.of(), List.of(), List.of(), null, null),
-                new ApiEndpointMetadata("/api/payments", "POST", "PaymentController", "makePayment", "Make a payment", List.of(), List.of(), List.of(), "PaymentRequest", "PaymentResponse")
-        );
-
-        ingestor.onScanCompleted(eventWith(endpoints));
-
-        @SuppressWarnings("unchecked")
-        ArgumentCaptor<List<Document>> captor = ArgumentCaptor.forClass(List.class);
-        verify(vectorStore, times(1)).add(captor.capture());
-        assertThat(captor.getValue()).hasSize(2);
+    private ApiEndpointMetadata ep(String path, String method) {
+        return new ApiEndpointMetadata(path, method, "Ctrl", "m", "desc",
+                List.of(), List.of(), List.of(), null, null);
     }
 
     @Test
-    @DisplayName("onScanCompleted() embeds endpoint details in the document text")
-    void onScanCompleted_embeds_endpointDetails_inDocumentText() {
-        List<ApiEndpointMetadata> endpoints = List.of(
-                new ApiEndpointMetadata("/api/orders", "DELETE", "OrderController", "cancelOrder", "Cancel an order", List.of(), List.of(), List.of(), null, "void")
-        );
+    @DisplayName("onScanCompleted() POSTs to /ingest")
+    void postsToIngest() {
+        mockServer.expect(requestTo("http://localhost:8000/ingest"))
+                .andExpect(method(org.springframework.http.HttpMethod.POST))
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
+                .andRespond(withSuccess("{}", MediaType.APPLICATION_JSON));
 
-        ingestor.onScanCompleted(eventWith(endpoints));
-
-        @SuppressWarnings("unchecked")
-        ArgumentCaptor<List<Document>> captor = ArgumentCaptor.forClass(List.class);
-        verify(vectorStore).add(captor.capture());
-
-        String docText = captor.getValue().get(0).getText();
-        assertThat(docText).contains("/api/orders");
-        assertThat(docText).contains("DELETE");
-        assertThat(docText).contains("Cancel an order");
+        ingestor.onScanCompleted(event(List.of(ep("/api/users", "GET"))));
+        mockServer.verify();
     }
 
     @Test
-    @DisplayName("onScanCompleted() does not call vectorStore when no endpoints are found")
-    void onScanCompleted_skipsVectorStore_whenNoEndpoints() {
-        ingestor.onScanCompleted(eventWith(List.of()));
-        verify(vectorStore, never()).add(any());
+    @DisplayName("onScanCompleted() skips POST when no endpoints")
+    void skipsWhenEmpty() {
+        ingestor.onScanCompleted(event(List.of()));
+        mockServer.verify();
     }
 
     @Test
-    @DisplayName("onScanCompleted() is idempotent - second call is silently ignored")
-    void onScanCompleted_isIdempotent_secondCallIgnored() {
-        List<ApiEndpointMetadata> endpoints = List.of(
-                new ApiEndpointMetadata("/api/users", "GET", "UserController", "getUsers", "List users", List.of(), List.of(), List.of(), null, null)
-        );
+    @DisplayName("onScanCompleted() is idempotent — second call ignored")
+    void isIdempotent() {
+        mockServer.expect(requestTo("http://localhost:8000/ingest"))
+                .andRespond(withSuccess("{}", MediaType.APPLICATION_JSON));
 
-        ingestor.onScanCompleted(eventWith(endpoints));
-        ingestor.onScanCompleted(eventWith(endpoints));
-
-        verify(vectorStore, times(1)).add(any());
+        ingestor.onScanCompleted(event(List.of(ep("/api/x", "GET"))));
+        ingestor.onScanCompleted(event(List.of(ep("/api/x", "GET"))));
+        mockServer.verify();
     }
 
     @Test
-    @DisplayName("onScanCompleted() continues gracefully when vectorStore.add() throws")
-    void onScanCompleted_continuesGracefully_whenVectorStoreThrows() {
-        List<ApiEndpointMetadata> endpoints = List.of(
-                new ApiEndpointMetadata("/api/users", "GET", "UserController", "getUsers", "List users", List.of(), List.of(), List.of(), null, null)
-        );
-        doThrow(new RuntimeException("Embedding model not available")).when(vectorStore).add(any());
+    @DisplayName("Handles HTTP error from LLM service gracefully")
+    void handlesErrorGracefully() {
+        mockServer.expect(requestTo("http://localhost:8000/ingest"))
+                .andRespond(withServerError());
 
-        org.junit.jupiter.api.Assertions.assertDoesNotThrow(
-                () -> ingestor.onScanCompleted(eventWith(endpoints)));
+        assertDoesNotThrow(() -> ingestor.onScanCompleted(event(List.of(ep("/api/x", "GET")))));
     }
 }

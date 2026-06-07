@@ -8,49 +8,36 @@ import org.springframework.web.servlet.config.annotation.InterceptorRegistry;
 import org.springframework.web.servlet.config.annotation.ViewControllerRegistry;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 
-/**
- * MVC configuration: registers the rate-limit interceptor, UI view controllers,
- * and CORS rules for all {@code /apiscope/api/**} endpoints.
- */
 @Configuration
 public class AgenticDocsMvcConfigurer implements WebMvcConfigurer {
 
-    private final AgenticDocsProperties properties;
-    private final RateLimiterService rateLimiterService;
+    private final AgenticDocsProperties props;
+    private final RateLimiterService rateLimiter;
 
-    public AgenticDocsMvcConfigurer(AgenticDocsProperties properties,
-                                    RateLimiterService rateLimiterService) {
-        this.properties       = properties;
-        this.rateLimiterService = rateLimiterService;
+    public AgenticDocsMvcConfigurer(AgenticDocsProperties props, RateLimiterService rateLimiter) {
+        this.props      = props;
+        this.rateLimiter = rateLimiter;
     }
 
     @Override
     public void addInterceptors(InterceptorRegistry registry) {
-        registry.addInterceptor(new RateLimitInterceptor(rateLimiterService))
+        registry.addInterceptor(new RateLimitInterceptor(rateLimiter))
                 .addPathPatterns("/apiscope/api/**")
-                .excludePathPatterns(
-                        "/apiscope/api/endpoints",
-                        "/apiscope/api/endpoint-metrics",
-                        "/apiscope/api/admin/reindex"
-                );
+                .excludePathPatterns("/apiscope/api/endpoints", "/apiscope/api/endpoint-metrics", "/apiscope/api/admin/reindex");
     }
 
     @Override
     public void addViewControllers(ViewControllerRegistry registry) {
-        registry.addViewController("/").setViewName(
-                "forward:/apiscope/index.html");
-        registry.addViewController("/apiscope").setViewName(
-                "forward:/apiscope/index.html");
-        registry.addViewController("/apiscope/").setViewName(
-                "forward:/apiscope/index.html");
+        registry.addViewController("/").setViewName("forward:/apiscope/index.html");
+        registry.addViewController("/apiscope").setViewName("forward:/apiscope/index.html");
+        registry.addViewController("/apiscope/").setViewName("forward:/apiscope/index.html");
     }
 
     @Override
     public void addCorsMappings(CorsRegistry registry) {
-        String[] origins = properties.cors().allowedOrigins().toArray(String[]::new);
         registry.addMapping("/apiscope/api/**")
-                .allowedOrigins(origins)
-                .allowedMethods("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS")
+                .allowedOrigins(props.cors().allowedOrigins().toArray(String[]::new))
+                .allowedMethods("GET", "POST", "PUT", "DELETE", "OPTIONS")
                 .allowedHeaders("*")
                 .maxAge(3600);
     }
