@@ -60,7 +60,7 @@ public class ProductController {
             if (request.containsKey("price"))    p.setPrice(((Number) request.get("price")).doubleValue());
             if (request.containsKey("category")) p.setCategory((String) request.get("category"));
             productCatalogDao.save(p);
-            Map<String, Object> body = new java.util.HashMap<>();
+            Map<String, Object> body = new HashMap<>();
             body.put("productId", productId);
             body.put("updated", true);
             return ResponseEntity.<Map<String, Object>>ok(body);
@@ -72,7 +72,7 @@ public class ProductController {
         return productCatalogDao.findById(productId).map(p -> {
             p.setStatus("DEACTIVATED");
             productCatalogDao.save(p);
-            Map<String, Object> body = new java.util.HashMap<>();
+            Map<String, Object> body = new HashMap<>();
             body.put("productId", productId);
             body.put("status", "DEACTIVATED");
             return ResponseEntity.<Map<String, Object>>ok(body);
@@ -117,7 +117,7 @@ public class ProductController {
             int newQty = request.get("stockQuantity") instanceof Number n ? n.intValue() : p.getStockQuantity();
             p.setStockQuantity(newQty);
             productCatalogDao.save(p);
-            Map<String, Object> body = new java.util.HashMap<>();
+            Map<String, Object> body = new HashMap<>();
             body.put("productId", productId);
             body.put("newStockQuantity", newQty);
             return ResponseEntity.<Map<String, Object>>ok(body);

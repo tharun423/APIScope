@@ -38,12 +38,10 @@ export async function warmupAllEndpoints(endpoints, onProgress) {
           method,
           headers: { 'Content-Type': 'application/json' },
           body: needsBody ? '{}' : undefined,
-          // Short timeout — we only care that the request reaches the server
           signal: AbortSignal.timeout(5000),
         })
         ok++
       } catch {
-        // Network error / timeout — still count as "attempted"
         failed++
       } finally {
         onProgress(ok + failed, total)

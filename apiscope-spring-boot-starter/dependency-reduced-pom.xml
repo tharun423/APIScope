@@ -8,7 +8,7 @@
   <modelVersion>4.0.0</modelVersion>
   <artifactId>apiscope-spring-boot-starter</artifactId>
   <name>APIScope Spring Boot Starter</name>
-  <description>Spring Boot auto-configuration starter that wires up APIScope with zero configuration for Ollama.</description>
+  <description>Spring Boot starter for APIScope — API explorer and real-time flow tracer.</description>
   <url>https://github.com/tharun423/APIScope</url>
   <build>
     <plugins>
@@ -25,8 +25,8 @@
               <createDependencyReducedPom>true</createDependencyReducedPom>
               <artifactSet>
                 <includes>
-                  <include>io.github.tharun423:apiscope-core</include>
-                  <include>io.github.tharun423:apiscope-flow</include>
+                  <include>com.bucket4j:bucket4j_jdk17-core</include>
+                  <include>com.github.ben-manes.caffeine:caffeine</include>
                 </includes>
               </artifactSet>
             </configuration>
@@ -41,6 +41,38 @@
       <artifactId>spring-boot-autoconfigure</artifactId>
       <version>3.4.0</version>
       <scope>compile</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-web</artifactId>
+      <version>3.4.0</version>
+      <scope>provided</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-validation</artifactId>
+      <version>3.4.0</version>
+      <scope>provided</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-aop</artifactId>
+      <version>3.4.0</version>
+      <scope>compile</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-actuator</artifactId>
+      <version>3.4.0</version>
+      <scope>provided</scope>
+      <optional>true</optional>
+    </dependency>
+    <dependency>
+      <groupId>org.hibernate.orm</groupId>
+      <artifactId>hibernate-core</artifactId>
+      <version>6.6.2.Final</version>
+      <scope>compile</scope>
+      <optional>true</optional>
     </dependency>
     <dependency>
       <groupId>org.springframework.boot</groupId>

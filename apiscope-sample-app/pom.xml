@@ -14,7 +14,7 @@
     <artifactId>apiscope-sample-app</artifactId>
     <packaging>jar</packaging>
     <name>APIScope Sample App</name>
-    <description>Runnable demo application showcasing APIScope — AI-powered API exploration and real-time flow tracing for Spring Boot.</description>
+    <description>Runnable demo application showcasing APIScope — API explorer and real-time flow tracing for Spring Boot.</description>
     <url>https://github.com/tharun423/APIScope</url>
 
     <dependencies>
@@ -63,9 +63,7 @@
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-deploy-plugin</artifactId>
-                <configuration>
-                    <skip>true</skip>
-                </configuration>
+                <configuration><skip>true</skip></configuration>
             </plugin>
             <plugin>
                 <groupId>org.sonatype.central</groupId>
@@ -80,16 +78,12 @@
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-source-plugin</artifactId>
-                <configuration>
-                    <skipSource>true</skipSource>
-                </configuration>
+                <configuration><skipSource>true</skipSource></configuration>
             </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-javadoc-plugin</artifactId>
-                <configuration>
-                    <skip>true</skip>
-                </configuration>
+                <configuration><skip>true</skip></configuration>
             </plugin>
         </plugins>
     </build>

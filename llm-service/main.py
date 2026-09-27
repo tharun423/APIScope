@@ -1,158 +1,157 @@
-"""
-APIScope LLM Service
-Handles embeddings, vector search, and Ollama chat.
-
-Start: uvicorn main:app --port 8000
-
-Environment variables (all optional):
-  CHAT_MODEL   = llama3.2
-  EMBED_MODEL  = nomic-embed-text
-  VECTOR_STORE = vector_store.json
-  TOP_K        = 5
-  TEMPERATURE  = 0.1
-"""
-import json
 import os
-from pathlib import Path
+import httpx
+from contextlib import asynccontextmanager
+from dotenv import load_dotenv
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
+from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmbeddings
+from langchain_chroma import Chroma
+from langchain_core.documents import Document
+from langchain_core.prompts import PromptTemplate
+from langchain_core.output_parsers import StrOutputParser
+from pydantic import BaseModel
 from typing import Generator
 
-import ollama
-from fastapi import FastAPI
-from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+load_dotenv()
 
-# ── Config ────────────────────────────────────────────────────────────────────
-CHAT_MODEL   = os.getenv("CHAT_MODEL",   "llama3.2")
-EMBED_MODEL  = os.getenv("EMBED_MODEL",  "nomic-embed-text")
-VECTOR_STORE = os.getenv("VECTOR_STORE", "vector_store.json")
-TOP_K        = int(os.getenv("TOP_K",    "5"))
-TEMPERATURE  = float(os.getenv("TEMPERATURE", "0.1"))
+SPRING_API_URL = os.getenv("SPRING_API_URL", "http://localhost:8080")
+ENDPOINTS_URL  = f"{SPRING_API_URL}/apiscope/api/endpoints"
+CHROMA_DIR     = os.getenv("CHROMA_DIR", "./chroma_db")
 
-SYSTEM_PROMPT = """\
-You are an expert API assistant embedded inside developer documentation.
-Answer ONLY using the API context provided. Do not invent endpoints.
-Generate concise Java or React snippets using exact paths and field names.
-If the answer is not in the context say: "I could not find a relevant endpoint for that."
+llm = ChatGoogleGenerativeAI(
+    temperature=0.1,
+    google_api_key=os.getenv("GEMINI_API_KEY"),
+    model=os.getenv("CHAT_MODEL", "gemini-1.5-flash"),
+)
 
-API Context:
----
-{context}
----"""
+embeddings = GoogleGenerativeAIEmbeddings(
+    google_api_key=os.getenv("GEMINI_API_KEY"),
+    model=os.getenv("EMBED_MODEL", "models/embedding-001"),
+)
 
-# ── In-memory vector store ────────────────────────────────────────────────────
-# Each entry: { "text": str, "embedding": list[float] }
-store: list[dict] = []
+vector_store = Chroma(
+    collection_name="api_endpoints",
+    embedding_function=embeddings,
+    persist_directory=CHROMA_DIR,
+)
 
-
-def load_store():
-    global store
-    path = Path(VECTOR_STORE)
-    if path.exists():
-        store = json.loads(path.read_text())
-
-
-def save_store():
-    Path(VECTOR_STORE).write_text(json.dumps(store))
-
-
-def cosine_similarity(a: list[float], b: list[float]) -> float:
-    dot = sum(x * y for x, y in zip(a, b))
-    norm_a = sum(x * x for x in a) ** 0.5
-    norm_b = sum(x * x for x in b) ** 0.5
-    return dot / (norm_a * norm_b) if norm_a and norm_b else 0.0
-
-
-def search(query: str, top_k: int) -> list[str]:
-    if not store:
-        return []
-    query_vec = ollama.embeddings(model=EMBED_MODEL, prompt=query)["embedding"]
-    ranked = sorted(store, key=lambda d: cosine_similarity(query_vec, d["embedding"]), reverse=True)
-    return [d["text"] for d in ranked[:top_k]]
+RAG_PROMPT = PromptTemplate.from_template(
+    "You are an API assistant for a Spring Boot application. "
+    "Use ONLY the API endpoint context below to answer the question. "
+    "If the context does not contain enough information, say so.\n\n"
+    "Context:\n{context}\n\n"
+    "Question: {question}\n\n"
+    "Answer:"
+)
 
 
 def endpoint_to_text(ep: dict) -> str:
-    return (
-        f"Endpoint: [{ep.get('httpMethod', 'GET')}] {ep.get('path', '')}\n"
-        f"Controller: {ep.get('controllerName', '')}\n"
-        f"Method: {ep.get('methodName', '')}\n"
-        f"Path Params: {', '.join(ep.get('pathParams') or []) or 'none'}\n"
-        f"Required Params: {', '.join(ep.get('requiredQueryParams') or []) or 'none'}\n"
-        f"Optional Params: {', '.join(ep.get('optionalQueryParams') or []) or 'none'}\n"
-        f"Request Body: {ep.get('requestBodyType') or 'none'}\n"
-        f"Response Type: {ep.get('responseType') or 'void'}\n"
-        f"Summary: {ep.get('description', '')}"
-    )
+    lines = [
+        f"{ep.get('httpMethod', 'GET')} {ep.get('path', '/')}",
+        f"Controller: {ep.get('controllerName', '')}  Method: {ep.get('methodName', '')}",
+        f"Description: {ep.get('description', '')}",
+    ]
+    if ep.get("pathParams"):
+        lines.append(f"Path params: {', '.join(ep['pathParams'])}")
+    if ep.get("requiredQueryParams"):
+        lines.append(f"Required query params: {', '.join(ep['requiredQueryParams'])}")
+    if ep.get("optionalQueryParams"):
+        lines.append(f"Optional query params: {', '.join(ep['optionalQueryParams'])}")
+    if ep.get("requestBodyType"):
+        lines.append(f"Request body: {ep['requestBodyType']}")
+    if ep.get("responseType"):
+        lines.append(f"Response type: {ep['responseType']}")
+    return "\n".join(lines)
 
 
-# ── Schemas ───────────────────────────────────────────────────────────────────
-class IngestRequest(BaseModel):
-    endpoints: list[dict]
+def ingest_endpoints(endpoints: list[dict]) -> int:
+    # Upsert — delete existing docs then re-add so re-embed is always fresh
+    existing = vector_store.get()
+    if existing and existing.get("ids"):
+        vector_store.delete(ids=existing["ids"])
+
+    docs = [
+        Document(
+            page_content=endpoint_to_text(ep),
+            metadata={
+                "path": ep.get("path", ""),
+                "httpMethod": ep.get("httpMethod", ""),
+                "method": ep.get("methodName", ""),
+            },
+            id=f"{ep.get('httpMethod', '')}:{ep.get('path', '')}",
+        )
+        for ep in endpoints
+    ]
+    vector_store.add_documents(docs)
+    return len(docs)
+
+
+def build_rag_response(question: str) -> str:
+    docs    = vector_store.as_retriever(search_kwargs={"k": 5}).invoke(question)
+    context = "\n\n---\n\n".join(d.page_content for d in docs)
+    return (RAG_PROMPT | llm | StrOutputParser()).invoke({"context": context, "question": question})
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    try:
+        resp = httpx.get(ENDPOINTS_URL, timeout=10)
+        resp.raise_for_status()
+        count = ingest_endpoints(resp.json())
+        print(f"[APIScope] Embedded {count} endpoints into ChromaDB.")
+    except Exception as e:
+        print(f"[APIScope] Warning: could not auto-embed endpoints on startup: {e}")
+    yield
+
+
+app = FastAPI(title="APIScope LLM Service", lifespan=lifespan)
+app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 
 class ChatRequest(BaseModel):
     question: str
-    top_k: int = TOP_K
-
-
-# ── App ───────────────────────────────────────────────────────────────────────
-app = FastAPI(title="APIScope LLM Service")
-
-
-@app.on_event("startup")
-def startup():
-    load_store()
 
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "docs_indexed": len(store)}
+    return {"status": "ok"}
+
+
+@app.post("/embed")
+def embed():
+    """Re-fetch endpoints from Spring and re-embed into ChromaDB."""
+    try:
+        resp = httpx.get(ENDPOINTS_URL, timeout=10)
+        resp.raise_for_status()
+        return {"embedded": ingest_endpoints(resp.json())}
+    except Exception as e:
+        return {"error": str(e)}
 
 
 @app.post("/ingest")
-def ingest(req: IngestRequest):
-    global store
-    store = []
-    for ep in req.endpoints:
-        text = ep.get("llmText") or endpoint_to_text(ep)
-        embedding = ollama.embeddings(model=EMBED_MODEL, prompt=text)["embedding"]
-        store.append({"text": text, "embedding": embedding})
-    save_store()
-    return {"ingested": len(store)}
+def ingest(endpoints: list[dict]):
+    """Accept endpoints pushed directly from any Spring Boot app."""
+    try:
+        return {"embedded": ingest_endpoints(endpoints)}
+    except Exception as e:
+        return {"error": str(e)}
 
 
 @app.post("/chat")
 def chat(req: ChatRequest):
-    context = "\n---\n".join(search(req.question, req.top_k)) or "No context available."
-    prompt = SYSTEM_PROMPT.format(context=context)
-    response = ollama.chat(
-        model=CHAT_MODEL,
-        messages=[
-            {"role": "system", "content": prompt},
-            {"role": "user",   "content": req.question},
-        ],
-        options={"temperature": TEMPERATURE},
-    )
-    return {"answer": response["message"]["content"]}
+    return {"answer": build_rag_response(req.question)}
 
 
 @app.post("/chat/stream")
 def chat_stream(req: ChatRequest):
-    context = "\n---\n".join(search(req.question, req.top_k)) or "No context available."
-    prompt = SYSTEM_PROMPT.format(context=context)
+    docs    = vector_store.as_retriever(search_kwargs={"k": 5}).invoke(req.question)
+    context = "\n\n---\n\n".join(d.page_content for d in docs)
 
-    def token_generator() -> Generator[str, None, None]:
-        for chunk in ollama.chat(
-            model=CHAT_MODEL,
-            messages=[
-                {"role": "system", "content": prompt},
-                {"role": "user",   "content": req.question},
-            ],
-            options={"temperature": TEMPERATURE},
-            stream=True,
-        ):
-            token = chunk["message"]["content"]
+    def generate() -> Generator[str, None, None]:
+        for token in (RAG_PROMPT | llm | StrOutputParser()).stream({"context": context, "question": req.question}):
             if token:
-                yield f"data: {token}\n\n"
-        yield "data: [DONE]\n\n"
+                yield f"event: token\ndata: {token}\n\n"
+        yield "event: done\ndata: [DONE]\n\n"
 
-    return StreamingResponse(token_generator(), media_type="text/event-stream")
+    return StreamingResponse(generate(), media_type="text/event-stream")

@@ -10,17 +10,10 @@ const TRACE_URL   = (id) => `${BASE}/apiscope/api/flow/trace/${id}`
  * @returns {Promise<{ traceId: string }>}
  */
 export async function executeFlow(request) {
-  const token = localStorage.getItem('apiscope_bearer_token')
-  const headers = { 'Content-Type': 'application/json' }
-  if (token) headers['Authorization'] = token.startsWith('Bearer ') ? token : `Bearer ${token}`
-
   const res = await fetch(EXECUTE_URL, {
     method:  'POST',
-    headers,
-    body:    JSON.stringify({
-      ...request,
-      authorizationHeader: token ? (token.startsWith('Bearer ') ? token : `Bearer ${token}`) : null,
-    }),
+    headers: { 'Content-Type': 'application/json' },
+    body:    JSON.stringify(request),
   })
   if (!res.ok) {
     const text = await res.text()

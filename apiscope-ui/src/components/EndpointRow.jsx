@@ -1,12 +1,11 @@
 import { useState } from 'react'
-import { ChevronDown, ChevronUp, Play, Bot, Tag, Cpu, ArrowRight, Package, CornerDownRight } from 'lucide-react'
+import { ChevronDown, ChevronUp, Play, Tag, Cpu, ArrowRight, Package, CornerDownRight } from 'lucide-react'
 import MethodBadge    from './MethodBadge'
 import TryItPanel     from './TryItPanel'
 import MetricsBadges  from './MetricsBadges'
-import { methodColor }           from '../constants/methodColors'
-import { buildEndpointAiPrompt } from '../constants/messages'
+import { methodColor } from '../constants/methodColors'
 
-export default function EndpointRow({ endpoint, onAskAI, token }) {
+export default function EndpointRow({ endpoint, token }) {
   const [expanded, setExpanded] = useState(false)
   const [tryIt,    setTryIt]    = useState(false)
   const c = methodColor(endpoint.httpMethod)
@@ -154,12 +153,6 @@ export default function EndpointRow({ endpoint, onAskAI, token }) {
               }`}
             >
               <Play size={11} /> {tryIt ? 'Close' : 'Try it out'}
-            </button>
-            <button
-              onClick={() => onAskAI(buildEndpointAiPrompt(endpoint.httpMethod, endpoint.path))}
-              className="flex items-center gap-1.5 px-3 py-1.5 border border-white/10 text-slate-400 hover:text-white hover:border-violet-500/40 hover:bg-violet-500/5 text-xs rounded-lg font-semibold transition-all duration-150"
-            >
-              <Bot size={11} /> Ask AI
             </button>
           </div>
 

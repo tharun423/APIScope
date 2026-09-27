@@ -68,7 +68,7 @@ public class OrderController {
         return salesOrderDao.findByOrderRef(orderId).map(o -> {
             o.setStatus("CANCELLED");
             salesOrderDao.save(o);
-            Map<String, Object> body = new java.util.HashMap<>();
+            Map<String, Object> body = new HashMap<>();
             body.put("orderId", orderId);
             body.put("status", "CANCELLED");
             body.put("refundInitiated", true);
@@ -98,7 +98,7 @@ public class OrderController {
     @GetMapping("/{orderId}/tracking")
     public ResponseEntity<Map<String, Object>> getTracking(@PathVariable String orderId) {
         return salesOrderDao.findByOrderRef(orderId).map(o -> {
-            Map<String, Object> body = new java.util.HashMap<>();
+            Map<String, Object> body = new HashMap<>();
             body.put("orderId",           orderId);
             body.put("status",            o.getStatus());
             body.put("carrier",           "FedEx");

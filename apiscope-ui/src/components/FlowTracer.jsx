@@ -8,6 +8,7 @@ import FlowStepCard    from './FlowStepCard'
 import MethodBadge     from './MethodBadge'
 import { useEndpoints }   from '../hooks/useEndpoints'
 import { useFlowTracer }  from '../hooks/useFlowTracer'
+import { useBearerToken } from '../hooks/useBearerToken'
 import { BODY_METHODS }   from '../api/tryItApi'
 
 /** Copy-to-clipboard button for the final response panel. */
@@ -37,14 +38,8 @@ export default function FlowTracer() {
   const [queryParams,    setQueryParams]     = useState({})
   const [body,           setBody]            = useState('')
   const [endpointSearch, setEndpointSearch] = useState('')
-  const [token,          setToken]           = useState(() => localStorage.getItem('apiscope_bearer_token') ?? '')
-  const [showToken,      setShowToken]       = useState(false)
-
-  const handleTokenChange = (val) => {
-    setToken(val)
-    if (val) localStorage.setItem('apiscope_bearer_token', val)
-    else     localStorage.removeItem('apiscope_bearer_token')
-  }
+  const { token, updateToken } = useBearerToken()
+  const [showToken, setShowToken] = useState(false)
 
   // Derive the selected endpoint object
   const selectedEndpoint = useMemo(
@@ -100,6 +95,7 @@ export default function FlowTracer() {
       pathParams,
       queryParams,
       body:        needsBody ? body : null,
+      authorizationHeader: token ? (token.startsWith('Bearer ') ? token : `Bearer ${token}`) : null,
     })
   }
 
@@ -174,12 +170,12 @@ export default function FlowTracer() {
                   <input
                     type="password"
                     value={token}
-                    onChange={(e) => handleTokenChange(e.target.value)}
+                    onChange={(e) => updateToken(e.target.value)}
                     placeholder="Paste JWT / Bearer token — stored in localStorage"
                     className="flex-1 bg-[#1a1d2e] border border-white/8 rounded-lg px-3 py-1.5 text-xs text-emerald-300 font-mono focus:outline-none focus:border-emerald-500/50 transition-colors"
                   />
                   {token && (
-                    <button onClick={() => handleTokenChange('')} className="text-slate-600 hover:text-red-400 text-xs transition-colors" title="Clear token">✕</button>
+                    <button onClick={() => updateToken('')} className="text-slate-600 hover:text-red-400 text-xs transition-colors" title="Clear token">✕</button>
                   )}
                 </div>
               )}
